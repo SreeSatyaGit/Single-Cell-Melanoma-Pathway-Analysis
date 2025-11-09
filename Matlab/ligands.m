@@ -105,6 +105,15 @@ EH = y(:, 6);
 EHp = y(:, 7);
 
 fprintf('Simulation completed.\n');
+%% ============================================================================
+% SAVE pEGFR (EEp) FOR USE IN ADAPTOR MODEL
+% ============================================================================
+
+% Save time and EEp (phosphorylated EGFR) for use in adaptor model
+save('egfr_output.mat', 't', 'EEp');
+fprintf('Saved pEGFR (EEp) values to egfr_output.mat\n');
+fprintf('  Time points: %d\n', length(t));
+fprintf('  EEp range: %.4f to %.4f nM\n', min(EEp), max(EEp));
 
 %% ============================================================================
 % PLOTTING
