@@ -1,26 +1,27 @@
 % =============================================================================
-% MAPK AND PI3K/AKT/mTOR PATHWAYS WITH BRAF^V600E MUTATION AND CROSS-TALK
-% Integrated Signaling with BRAF Mutation, Cross-Pathway Interactions and Feedback
+% VEMURAFENIB EFFECTS ON MAPK AND PI3K/AKT/mTOR PATHWAYS
+% Drug Inhibition of BRAF^V600E with Adaptive Signaling and Cross-Talk
 % =============================================================================
 %
 % IMPORTANT: All concentrations and species values are normalized to [0, 1]
 % - Initial conditions: Total pools = 1.0, distributed between active/inactive forms
-% - Input signals: pRTK normalized to [0, 1]
+% - Input signals: pRTK and vemurafenib normalized to [0, 1]
+% - IC50: Normalized value (0.1 = 10% of maximum drug concentration)
 %
 % Model Description:
-% This script models both MAPK and PI3K/AKT/mTOR pathways with:
-% - BRAF^V600E constitutive mutation (RAS-independent)
-% - Cross-talk mechanisms between pathways
-% - Comprehensive feedback loops
+% This script models the effects of vemurafenib (BRAF inhibitor) on:
+% - MAPK pathway with BRAF^V600E mutation
+% - PI3K/AKT/mTOR pathway
+% - Cross-talk mechanisms and adaptive responses
 %
 % PATHWAY 1: EGFR → MAPK (RAS-RAF-MEK-ERK)
 %   - Shc recruitment and phosphorylation by pEGFR
 %   - Grb2 binding and SOS activation
 %   - RAS activation by SOS*
 %   - Wild-type RAF activation (RAS-dependent, AKT-inhibited)
-%   - BRAF^V600E constitutive activation (RAS-independent, AKT-resistant)
+%   - BRAF^V600E constitutive activation (inhibited by vemurafenib)
 %   - Sequential MEK and ERK phosphorylation
-%   - ERK-P negative feedback on upstream MAPK components
+%   - ERK-P negative feedback (relieved when vemurafenib reduces ERK-P)
 %
 % PATHWAY 2: EGFR → PI3K/AKT/mTOR
 %   - PI3K activation by pEGFR/pHER3 (and RAS-GTP cross-talk)
@@ -31,19 +32,22 @@
 %   - S6K and 4EBP1 phosphorylation
 %   - pS6K negative feedback on PI3K
 %
+% VEMURAFENIB EFFECTS:
+% 1. Direct inhibition: Vemurafenib inhibits BRAF^V600E kinase activity using Hill equation
+%    - Hill equation: k_eff = k_base * IC50^n / (IC50^n + [Drug]^n)
+%    - IC50: half-maximal inhibitory concentration
+%    - Hill coefficient n: cooperativity parameter (typically 1-2)
+% 2. Paradoxical activation: Vemurafenib can trans-activate wild-type RAF in dimers
+% 3. Feedback relief: Reduced ERK-P relieves negative feedback on SOS/Shc
+% 4. Adaptive signaling: RAS-GTP rebound → PI3K activation rebound
+% 5. Cross-talk changes: Reduced ERK-P → reduced ERK→TSC2 enhancement
+%
 % CROSS-TALK MECHANISMS:
-% 1. RAS → PI3K: RAS-GTP activates PI3K
-% 2. ERK → TSC2/mTORC1: ERK-P phosphorylates TSC2, enhancing mTORC1
-% 3. AKT → RAF: AKT phosphorylates wild-type CRAF, inhibiting RAF activation
-%    (Note: AKT does NOT inhibit BRAF^V600E)
+% 1. RAS → PI3K: RAS-GTP activates PI3K (rebound after vemurafenib)
+% 2. ERK → TSC2/mTORC1: ERK-P phosphorylates TSC2 (reduced after vemurafenib)
+% 3. AKT → RAF: AKT inhibits wild-type RAF (not BRAF^V600E)
 % 4. pS6K → PI3K: Negative feedback on PI3K activation
 % 5. PTEN: Degrades PIP3, limiting AKT activation
-%
-% BRAF^V600E MUTATION EFFECTS:
-% - Constitutive activation (does not require RAS-GTP)
-% - Resistant to AKT-mediated inhibition
-% - Less sensitive to ERK-P feedback
-% - Drives sustained MEK/ERK activation
 %
 % =============================================================================
 
@@ -51,12 +55,57 @@ clear all;
 close all;
 clc;
 
+% Experimental values normalized with Vinculin, Experimental time is hours
+
+EGFR = [0.123025235,0.107275504,0.269197631,0.307347132,0.415349555,0.330053274]
+pEGFR = [0.291928893,0.392400458,0.265016688,0.394238749,0.006158316,0.008115099]
+her3 = [0.203233765,0.194358998,0.303475212,0.674083831,0.89702403,0.459831389]
+her2 = [0.245236744,0.177917339,0.239075259,0.306884773,1.066654783,1.005085151]
+IGF1R = [0.96024414,1.070624757,1.126551098,1.157072001,0.734617533,0.457922622]
+PDGFR = [0.474174188,0.492132953,0.743620725,1.266460499,2.514722273,2.482761079]
+PanRAS = [0.839133594,0.833259289,0.919508516,1.240888235,1.582734859,1.468310571]
+pCRAF = [0.366397596,0.537106733,0.465541704,0.586732657,1.102322681,0.269181259]
+pMEK = [1.75938884,0.170160085,0.095112609,0.201000276,0.219207054,0.502831668]
+pERK = [2.903209735,0.207867788,0.303586121,0.805254439,1.408362153,1.847606441]
+DUSP6 = [2.677161325,2.782754577,1.130758062,0.395642757,0.828575853,0.916618219]
+DUSP4 = [2.035822288,1.560630445,0.235971416,0.3076027,0.143555376,0.120326106]
+pAKT308 = [0.407894525,0.552421756,1.005350576,0.860214813,0.444584869,0.339957286]
+pAKT473 = [0.513544148,0.613178403,1.03451863,1.113391047,0.535242724,0.538273551]
+pS6K = [1.432459522,1.520433646,1.542177411,1.248505245,0.109963216,0.013374136]
+p4EBP1 = [1.002468056,1.276793699,1.252681407,1.707504483,1.271216967,0.61389625]
+experimentalTime = [0,1,4,8,24,48];  % Time in hours
+experimentalTime_min = experimentalTime * 60;  % Convert to minutes
+
+% Normalize experimental values to [0, 1] using min-max normalization
+% Function to normalize a vector to [0, 1]
+normalize_0_1 = @(x) (x - min(x)) ./ (max(x) - min(x) + eps);  % Add eps to avoid division by zero for constant vectors
+
+% Normalize all experimental datasets
+EGFR = normalize_0_1(EGFR);
+pEGFR = normalize_0_1(pEGFR);
+her3 = normalize_0_1(her3);
+her2 = normalize_0_1(her2);
+IGF1R = normalize_0_1(IGF1R);
+PDGFR = normalize_0_1(PDGFR);
+PanRAS = normalize_0_1(PanRAS);
+pCRAF = normalize_0_1(pCRAF);
+pMEK = normalize_0_1(pMEK);
+pERK = normalize_0_1(pERK);
+DUSP6 = normalize_0_1(DUSP6);
+DUSP4 = normalize_0_1(DUSP4);
+pAKT308 = normalize_0_1(pAKT308);
+pAKT473 = normalize_0_1(pAKT473);
+pS6K = normalize_0_1(pS6K);
+p4EBP1 = normalize_0_1(p4EBP1);
+
+fprintf('Experimental data normalized to [0, 1] range.\n');
+
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
-fprintf('   MAPK AND PI3K/AKT/mTOR WITH BRAF^{V600E} MUTATION AND CROSS-TALK\n');
+fprintf('   VEMURAFENIB EFFECTS ON MAPK AND PI3K/AKT/mTOR PATHWAYS\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
 
 %% ============================================================================
-% INPUT SIGNAL: pEGFR(t) or pRTK(t)
+% INPUT SIGNALS
 % ============================================================================
 
 % Define pRTK (pEGFR or pHER3) as a function of time (normalized to [0, 1])
@@ -70,48 +119,61 @@ pRTK_func = @(t) 1.0 * exp(-0.05 * t) .* (t >= 0);  % Normalized: starts at 1.0,
 % if exist('egfr_output.mat', 'file')
 %     load('egfr_output.mat', 't', 'EEp', 'EHp');
 %     t_rtk = t;
-%     pRTK_data = EEp + 0.5 * EHp;  % Combined pEGFR and pHER3
+%     pRTK_data = EEp + 0.5 * EHp;
 %     pRTK_func = @(t) interp1(t_rtk, pRTK_data, t, 'linear', pRTK_data(end));
 % end
 
-fprintf('Using pRTK (pEGFR/pHER3) as input signal for both pathways.\n\n');
+% Define vemurafenib concentration as a function of time (normalized to [0, 1])
+% Option 1: Step function (constant drug concentration, normalized)
+% Drug is present from t=0 (experimental data includes drug from start)
+vemurafenib_func = @(t) 1.0 * (t >= 0);  % Normalized: drug = 1.0 (maximum) from t = 0
+
+% Option 2: Ramp function (gradual increase)
+% vemurafenib_func = @(t) 1.0 * max(0, (t - 50) / 10) .* (t >= 50) .* (t <= 60) + 1.0 * (t > 60);
+
+% Option 3: Time-dependent (decay)
+% vemurafenib_func = @(t) 1.0 * exp(-0.02 * (t - 50)) .* (t >= 50);
+
+fprintf('Using pRTK (pEGFR/pHER3) as input signal.\n');
+fprintf('Using vemurafenib(t) as drug input signal.\n\n');
 
 %% ============================================================================
 % PARAMETERS
 % ============================================================================
 
-fprintf('Setting up parameters for both pathways with BRAF^{V600E} mutation...\n');
+fprintf('Setting up parameters for both pathways with vemurafenib effects...\n');
+fprintf('NOTE: All rate constants have been reduced by a factor of 10 to slow down reactions.\n\n');
 
 % ============================================================================
 % MAPK PATHWAY PARAMETERS
 % ============================================================================
 
-% Shc–Grb2–SOS Module
-k_on_Shc = 0.01;      % nM^-1 min^-1 - Shc binding to pEGFR (base rate)
-k_off_Shc = 0.01;     % min^-1 - Dissociation of pEGFR:Shc
-k_cat1 = 0.5;         % min^-1 - Shc phosphorylation rate
-k_cat_SOS = 0.5;      % min^-1 - SOS activation rate (base rate)
-k_on2 = 0.05;         % nM^-1 min^-1 - Grb2 binding to pShc
-k_off2 = 0.05;        % min^-1 - Dissociation of pShc:Grb2
-k_on3 = 0.05;         % nM^-1 min^-1 - SOS binding to pShc:Grb2
-k_off3 = 0.05;        % min^-1 - Dissociation of ternary complex
-k_deg4 = 0.05;        % min^-1 - SOS* deactivation rate
+% Shc–Grb2–SOS Module (slowed down by factor of 10)
+k_on_Shc = 0.001;      % nM^-1 min^-1 - Shc binding to pEGFR (base rate)
+k_off_Shc = 0.001;     % min^-1 - Dissociation of pEGFR:Shc
+k_cat1 = 0.05;         % min^-1 - Shc phosphorylation rate
+k_cat_SOS = 0.05;      % min^-1 - SOS activation rate (base rate)
+k_on2 = 0.005;         % nM^-1 min^-1 - Grb2 binding to pShc
+k_off2 = 0.005;        % min^-1 - Dissociation of pShc:Grb2
+k_on3 = 0.005;         % nM^-1 min^-1 - SOS binding to pShc:Grb2
+k_off3 = 0.005;        % min^-1 - Dissociation of ternary complex
+k_deg4 = 0.005;        % min^-1 - SOS* deactivation rate
 
-% RAS–RAF–MEK–ERK Module
-k_SOS = 0.5;          % min^-1 - RAS activation rate by SOS*
-k_GTPase = 0.1;       % min^-1 - RAS GTP hydrolysis rate (base rate)
-k_RAF_act = 0.3;      % min^-1 - Wild-type RAF activation rate (base rate)
-k_RAF_deact = 0.05;   % min^-1 - RAF* deactivation rate
+% RAS–RAF–MEK–ERK Module (slowed down by factor of 10)
+k_SOS = 0.05;          % min^-1 - RAS activation rate by SOS*
+k_GTPase = 0.01;       % min^-1 - RAS GTP hydrolysis rate (base rate)
+k_RAF_act = 0.03;      % min^-1 - Wild-type RAF activation rate (base rate)
+k_RAF_deact = 0.005;   % min^-1 - RAF* deactivation rate
 
-% BRAF^V600E Mutation Parameters
-k_BRAF_mut = 0.5;     % min^-1 - BRAF^V600E constitutive activation rate
-k_BRAF_mut_deact = 0.02; % min^-1 - BRAF^V600E* deactivation rate (slower than wild-type)
+% BRAF^V600E Mutation Parameters (slowed down by factor of 10)
+k_BRAF_mut = 0.05;     % min^-1 - BRAF^V600E constitutive activation rate
+k_BRAF_mut_deact = 0.002; % min^-1 - BRAF^V600E* deactivation rate
 
-% MEK and ERK Module
-k_MEK = 0.5;          % min^-1 - MEK phosphorylation rate (by RAF* or BRAF^V600E*)
-k_MEK_deact = 0.05;   % min^-1 - MEK-P dephosphorylation rate
-k_ERK = 0.5;          % min^-1 - ERK phosphorylation rate
-k_ERK_deact = 0.05;   % min^-1 - ERK-P dephosphorylation rate
+% MEK and ERK Module (slowed down by factor of 10)
+k_MEK = 0.05;          % min^-1 - MEK phosphorylation rate
+k_MEK_deact = 0.005;   % min^-1 - MEK-P dephosphorylation rate
+k_ERK = 0.05;          % min^-1 - ERK phosphorylation rate
+k_ERK_deact = 0.005;   % min^-1 - ERK-P dephosphorylation rate
 
 % MAPK Feedback Parameters (ERK-P feedback)
 alpha_ERK_Shc = 0.5;  % ERK-P inhibition of Shc binding
@@ -124,45 +186,60 @@ alpha_ERK_GTPase = 0.2; % ERK-P enhancement of RAS GTPase
 % PI3K/AKT/mTOR PATHWAY PARAMETERS
 % ============================================================================
 
-% PI3K Module
-k_PI3K = 0.5;         % min^-1 - PI3K activation rate by pRTK (base rate)
-k_PI3K_deact = 0.05;  % min^-1 - PI3K deactivation rate
-k_PIP2_to_PIP3 = 0.5; % min^-1 - PIP2 to PIP3 conversion rate
-k_PTEN = 0.1;         % min^-1 - PTEN-mediated PIP3 dephosphorylation
+% PI3K Module (slowed down by factor of 10)
+k_PI3K = 0.05;         % min^-1 - PI3K activation rate by pRTK (base rate)
+k_PI3K_deact = 0.005;  % min^-1 - PI3K deactivation rate
+k_PIP2_to_PIP3 = 0.05; % min^-1 - PIP2 to PIP3 conversion rate
+k_PTEN = 0.01;         % min^-1 - PTEN-mediated PIP3 dephosphorylation
 
-% Cross-talk: RAS → PI3K
-k_PI3K_RAS = 0.2;     % min^-1 - PI3K activation rate by RAS-GTP
+% Cross-talk: RAS → PI3K (slowed down by factor of 10)
+k_PI3K_RAS = 0.02;     % min^-1 - PI3K activation rate by RAS-GTP
 
-% AKT Module
-k_AKT_recruit = 0.3;  % min^-1 - AKT recruitment rate by PIP3
-k_AKT_Thr308 = 0.5;   % min^-1 - AKT Thr308 phosphorylation rate by PDK1
-k_AKT_Ser473 = 0.3;   % min^-1 - AKT Ser473 phosphorylation rate by mTORC2
-k_AKT_deact = 0.05;   % min^-1 - AKT dephosphorylation rate
+% AKT Module (slowed down by factor of 10)
+k_AKT_recruit = 0.03;  % min^-1 - AKT recruitment rate by PIP3
+k_AKT_Thr308 = 0.05;   % min^-1 - AKT Thr308 phosphorylation rate
+k_AKT_Ser473 = 0.03;   % min^-1 - AKT Ser473 phosphorylation rate
+k_AKT_deact = 0.005;   % min^-1 - AKT dephosphorylation rate
 
-% TSC1/TSC2 and Rheb Module
-k_TSC2_inh = 0.5;     % min^-1 - TSC2 inhibition rate by pAKT (base rate)
-k_TSC2_base = 0.1;    % min^-1 - Base TSC2 inhibition rate
-k_Rheb_act = 0.5;     % min^-1 - Rheb-GTP activation rate
-k_Rheb_GTPase = 0.1;  % min^-1 - Rheb GTPase activity
+% TSC1/TSC2 and Rheb Module (slowed down by factor of 10)
+k_TSC2_inh = 0.05;     % min^-1 - TSC2 inhibition rate by pAKT (base rate)
+k_TSC2_base = 0.01;    % min^-1 - Base TSC2 inhibition rate
+k_Rheb_act = 0.05;     % min^-1 - Rheb-GTP activation rate
+k_Rheb_GTPase = 0.01;  % min^-1 - Rheb GTPase activity
 
 % Cross-talk: ERK → TSC2/mTORC1
-alpha3 = 0.2;         % ERK-P enhancement of TSC2 inhibition (alpha_ERK_TSC2)
+alpha3 = 0.2;         % ERK-P enhancement of TSC2 inhibition
 
-% mTORC1 Module
-k_mTORC1 = 0.5;       % min^-1 - mTORC1 activation rate
-k_mTORC1_deact = 0.05; % min^-1 - mTORC1 deactivation rate
+% mTORC1 Module (slowed down by factor of 10)
+k_mTORC1 = 0.05;       % min^-1 - mTORC1 activation rate
+k_mTORC1_deact = 0.005; % min^-1 - mTORC1 deactivation rate
 
-% S6K and 4EBP1 Module
-k_S6K = 0.5;          % min^-1 - S6K phosphorylation rate
-k_S6K_deact = 0.05;   % min^-1 - pS6K dephosphorylation rate
-k_4EBP1 = 0.5;        % min^-1 - 4EBP1 phosphorylation rate
-k_4EBP1_deact = 0.05; % min^-1 - p4EBP1 dephosphorylation rate
+% S6K and 4EBP1 Module (slowed down by factor of 10)
+k_S6K = 0.05;          % min^-1 - S6K phosphorylation rate
+k_S6K_deact = 0.005;   % min^-1 - pS6K dephosphorylation rate
+k_4EBP1 = 0.05;        % min^-1 - 4EBP1 phosphorylation rate
+k_4EBP1_deact = 0.005; % min^-1 - p4EBP1 dephosphorylation rate
 
 % PI3K Feedback Parameters
 alpha1 = 0.5;         % pS6K inhibition of PI3K activation
 
-% Cross-talk: AKT → RAF (wild-type only, not BRAF^V600E)
+% Cross-talk: AKT → RAF (wild-type only)
 alpha2 = 0.3;         % pAKT inhibition of wild-type RAF activation
+
+% ============================================================================
+% VEMURAFENIB PARAMETERS (Hill Equation)
+% ============================================================================
+
+% Hill equation parameters for vemurafenib inhibition of BRAF^V600E (normalized)
+IC50_vem = 0.1;       % Normalized [0,1] - Half-maximal inhibitory concentration (IC50)
+                     % At 10% of max drug concentration, 50% inhibition occurs
+Hill_n = 1.5;         % Hill coefficient (cooperativity, typically 1-2 for drugs)
+% Hill equation inhibition: k_BRAF_mut_eff = k_BRAF_mut * IC50^n / (IC50^n + [vemurafenib]^n)
+% This gives: 0% inhibition at [Drug]=0, 50% at [Drug]=IC50, ~100% at [Drug]>>IC50
+% All concentrations are normalized to [0, 1]
+
+% Paradoxical activation parameter (vemurafenib can activate wild-type RAF) (slowed down by factor of 10)
+k_RAF_paradox = 0.01;  % min^-1 - Paradoxical RAF activation rate by vemurafenib
 
 % Store all parameters in structure
 params.k_on_Shc = k_on_Shc;
@@ -211,9 +288,13 @@ params.k_4EBP1 = k_4EBP1;
 params.k_4EBP1_deact = k_4EBP1_deact;
 params.alpha1 = alpha1;
 params.alpha2 = alpha2;
+params.IC50_vem = IC50_vem;
+params.Hill_n = Hill_n;
+params.k_RAF_paradox = k_RAF_paradox;
 params.pRTK_func = pRTK_func;
+params.vemurafenib_func = vemurafenib_func;
 
-fprintf('Parameters configured for both pathways with BRAF^{V600E} mutation.\n\n');
+fprintf('Parameters configured for both pathways with vemurafenib effects.\n\n');
 
 %% ============================================================================
 % INITIAL CONDITIONS
@@ -297,25 +378,25 @@ y0 = [Shc0; pEGFR_Shc0; pShc0; Grb2_0; pShc_Grb2_0; SOS_0; ...
       pAKT_Ser473_0; pAKT_full_0; TSC2_active0; Rheb_GTP0; ...
       mTORC1_0; mTORC1_active0; S6K0; pS6K0; EBP1_0; p4EBP1_0];
 
-fprintf('Initial conditions set for both pathways with BRAF^{V600E}.\n\n');
+fprintf('Initial conditions set. BRAF^{V600E}* initially active.\n\n');
 
 %% ============================================================================
 % TIME SPAN
 % ============================================================================
 
-tspan = [0, 200];  % minutes
+tspan = [0, 200];  % minutes (0 to 50 hours)
 
 %% ============================================================================
 % SOLVE ODE SYSTEM
 % ============================================================================
 
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
-fprintf('   SOLVING INTEGRATED ODE SYSTEM WITH BRAF^{V600E} MUTATION\n');
+fprintf('   SOLVING ODE SYSTEM WITH VEMURAFENIB INHIBITION\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
 
 fprintf('Solving ODE system (this may take a moment)...\n');
 options = odeset('RelTol', 1e-6, 'AbsTol', 1e-8);
-[t, y] = ode45(@(t,y) braf_mutant_crosstalk_odes(t, y, params), tspan, y0, options);
+[t, y] = ode45(@(t,y) vemurafenib_pathways_odes(t, y, params), tspan, y0, options);
 
 % Extract MAPK pathway species
 Shc = y(:, 1);
@@ -355,8 +436,9 @@ pS6K = y(:, 32);
 EBP1 = y(:, 33);
 p4EBP1 = y(:, 34);
 
-% Calculate pRTK input signal over time
+% Calculate input signals over time
 pRTK_signal = arrayfun(pRTK_func, t);
+vemurafenib_signal = arrayfun(vemurafenib_func, t);
 
 fprintf('Simulation completed successfully!\n\n');
 
@@ -368,7 +450,7 @@ fprintf('═══════════════════════�
 fprintf('   GENERATING VISUALIZATIONS\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
 
-% Figure 1: Pathway Overview with BRAF^V600E
+% Figure 1: Vemurafenib Effects on MAPK Pathway
 figure('Position', [50, 50, 1600, 1000]);
 
 % MAPK Pathway - Left column
@@ -381,7 +463,7 @@ ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
 title('MAPK: Adaptor Module', 'FontSize', 12, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 9);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
 subplot(3, 3, 2);
@@ -394,7 +476,7 @@ ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
 title('MAPK: RAS & RAF Species', 'FontSize', 12, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 9);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
 subplot(3, 3, 3);
@@ -406,7 +488,7 @@ ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
 title('MAPK: MEK & ERK', 'FontSize', 12, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 9);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
 % PI3K Pathway - Middle column
@@ -419,7 +501,7 @@ ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
 title('PI3K: PI3K & PIP3', 'FontSize', 12, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 9);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
 subplot(3, 3, 5);
@@ -431,7 +513,7 @@ ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
 title('PI3K: AKT & Rheb', 'FontSize', 12, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 9);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
 subplot(3, 3, 6);
@@ -444,28 +526,29 @@ ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
 title('PI3K: mTORC1 Outputs', 'FontSize', 12, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 9);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
-% Comparison plots - Right column
+% Drug and comparison plots - Right column
 subplot(3, 3, 7);
-plot(t, pRTK_signal, 'k-', 'LineWidth', 2);
+plot(t, vemurafenib_signal, 'k-', 'LineWidth', 2);
 xlabel('Time (minutes)', 'FontSize', 10);
 ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-title('Input Signal: pRTK', 'FontSize', 12, 'FontWeight', 'bold');
+title('Vemurafenib Concentration', 'FontSize', 12, 'FontWeight', 'bold');
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
+yline(0, 'k--', 'LineWidth', 1);
 
 subplot(3, 3, 8);
-plot(t, RAF_star, 'm-', 'LineWidth', 2, 'DisplayName', 'RAF* (WT)');
-hold on;
 plot(t, BRAF_mut_star, 'r-', 'LineWidth', 2.5, 'DisplayName', 'BRAF^{V600E}*');
+hold on;
+plot(t, ERK_P, 'b-', 'LineWidth', 2, 'DisplayName', 'ERK-P');
 xlabel('Time (minutes)', 'FontSize', 10);
 ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-title('RAF Comparison: Wild-type vs Mutant', 'FontSize', 12, 'FontWeight', 'bold');
+title('Vemurafenib Effect: BRAF^{V600E}* and ERK-P', 'FontSize', 12, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 9);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
 subplot(3, 3, 9);
@@ -478,107 +561,115 @@ ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
 title('Final Pathway Outputs', 'FontSize', 12, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 9);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
-sgtitle('MAPK and PI3K/AKT/mTOR Pathways with BRAF^{V600E} Mutation', ...
+sgtitle('Vemurafenib Effects on MAPK and PI3K/AKT/mTOR Pathways', ...
         'FontSize', 16, 'FontWeight', 'bold');
 
-% Figure 2: BRAF^V600E Effects and Cross-Talk Analysis
+% Figure 2: Vemurafenib Effects and Adaptive Responses
 figure('Position', [100, 100, 1400, 900]);
 
-% BRAF^V600E vs Wild-type RAF
+% Vemurafenib inhibition of BRAF^V600E
 subplot(2, 3, 1);
-plot(t, RAF_star, 'm-', 'LineWidth', 2, 'DisplayName', 'RAF* (WT, RAS-dependent)');
+yyaxis left;
+plot(t, vemurafenib_signal, 'k-', 'LineWidth', 2);
+ylabel('Normalized Vemurafenib [0,1]', 'FontSize', 12);
+yyaxis right;
+plot(t, BRAF_mut_star, 'r-', 'LineWidth', 2.5, 'DisplayName', 'BRAF^{V600E}*');
 hold on;
-plot(t, BRAF_mut_star, 'r-', 'LineWidth', 2.5, 'DisplayName', 'BRAF^{V600E}* (constitutive)');
+plot(t, ERK_P, 'b-', 'LineWidth', 2, 'DisplayName', 'ERK-P');
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+xlabel('Time (minutes)', 'FontSize', 12);
+title('Vemurafenib Inhibition of BRAF^{V600E}', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+hold off;
+
+% Adaptive response: RAS-GTP rebound
+subplot(2, 3, 2);
+plot(t, ERK_P, 'r-', 'LineWidth', 2, 'DisplayName', 'ERK-P');
+hold on;
+plot(t, RAS_GTP, 'c-', 'LineWidth', 2, 'DisplayName', 'RAS-GTP');
+plot(t, RAF_star, 'm-', 'LineWidth', 2, 'DisplayName', 'RAF* (WT)');
 xlabel('Time (minutes)', 'FontSize', 12);
 ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
-title('RAF Activation: Wild-type vs BRAF^{V600E}', 'FontSize', 14, 'FontWeight', 'bold');
+title('Adaptive Response: RAS-GTP Rebound', 'FontSize', 14, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 10);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
-% MEK-P activation from both RAF species
-subplot(2, 3, 2);
-contribution_wt = k_MEK * RAF_star .* MEK;
-contribution_mut = k_MEK * BRAF_mut_star .* MEK;
-plot(t, contribution_wt, 'm-', 'LineWidth', 2, 'DisplayName', 'Contribution from RAF* (WT)');
-hold on;
-plot(t, contribution_mut, 'r-', 'LineWidth', 2, 'DisplayName', 'Contribution from BRAF^{V600E}*');
-plot(t, MEK_P, 'k--', 'LineWidth', 2, 'DisplayName', 'Total MEK-P');
-xlabel('Time (minutes)', 'FontSize', 12);
-ylabel('Rate (normalized [0,1]/min)', 'FontSize', 12);
-title('MEK-P Activation: Wild-type vs Mutant Contribution', 'FontSize', 14, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-xlim([0, 200]);
-hold off;
-
-% Cross-talk: ERK → TSC2/mTORC1
+% PI3K pathway rebound
 subplot(2, 3, 3);
+plot(t, RAS_GTP, 'c-', 'LineWidth', 2, 'DisplayName', 'RAS-GTP');
+hold on;
+plot(t, PI3K_active, 'b-', 'LineWidth', 2, 'DisplayName', 'PI3K_active');
+plot(t, PIP3, 'r-', 'LineWidth', 2, 'DisplayName', 'PIP3');
+plot(t, pAKT_full, 'g-', 'LineWidth', 2, 'DisplayName', 'pAKT(Full)');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('PI3K Pathway Rebound (RAS → PI3K)', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+hold off;
+
+% mTORC1 response to ERK-P reduction
+subplot(2, 3, 4);
 plot(t, ERK_P, 'r-', 'LineWidth', 2, 'DisplayName', 'ERK-P');
 hold on;
 plot(t, TSC2_active, 'g-', 'LineWidth', 2, 'DisplayName', 'TSC2_active');
 plot(t, mTORC1_active, 'm-', 'LineWidth', 2, 'DisplayName', 'mTORC1_active');
 xlabel('Time (minutes)', 'FontSize', 12);
 ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
-title('Cross-Talk: ERK → TSC2/mTORC1', 'FontSize', 14, 'FontWeight', 'bold');
+title('mTORC1 Response to ERK-P Reduction', 'FontSize', 14, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 10);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
-% Cross-talk: AKT → RAF (wild-type only)
-subplot(2, 3, 4);
-plot(t, pAKT_full, 'b-', 'LineWidth', 2, 'DisplayName', 'pAKT(Full)');
-hold on;
-plot(t, RAF_star, 'm-', 'LineWidth', 2, 'DisplayName', 'RAF* (WT, AKT-inhibited)');
-plot(t, BRAF_mut_star, 'r-', 'LineWidth', 2, 'DisplayName', 'BRAF^{V600E}* (AKT-resistant)');
-xlabel('Time (minutes)', 'FontSize', 12);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
-title('Cross-Talk: AKT → RAF (WT only)', 'FontSize', 14, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-xlim([0, 200]);
-hold off;
-
-% Effective rate constants with cross-talk and feedback
+% Effective rate constants with vemurafenib (using Hill equation)
 subplot(2, 3, 5);
-k_PI3K_eff = k_PI3K ./ (1 + alpha1 * pS6K);
+% Hill equation: k_eff = k_base * IC50^n / (IC50^n + [Drug]^n)
+IC50_n = IC50_vem^Hill_n;
+vem_n = vemurafenib_signal.^Hill_n;
+% Handle zero drug concentrations
+k_BRAF_mut_eff = k_BRAF_mut * IC50_n ./ (IC50_n + vem_n);
+k_BRAF_mut_eff(vemurafenib_signal <= 0) = k_BRAF_mut;  % No inhibition when drug = 0
 k_RAF_act_eff = k_RAF_act ./ (1 + alpha_ERK_RAF * ERK_P) ./ (1 + alpha2 * pAKT_full);
-k_BRAF_mut_eff = k_BRAF_mut ./ (1 + alpha_ERK_BRAF_mut * ERK_P);
+k_PI3K_eff = k_PI3K ./ (1 + alpha1 * pS6K);
 k_TSC2_ERK = k_TSC2_base + alpha3 * ERK_P;
-plot(t, k_RAF_act_eff, 'm-', 'LineWidth', 2, 'DisplayName', 'k_{RAF} (WT, with feedbacks)');
+plot(t, k_BRAF_mut_eff, 'r-', 'LineWidth', 2, 'DisplayName', 'k_{BRAF^{V600E}} (inhibited)');
 hold on;
-plot(t, k_BRAF_mut_eff, 'r-', 'LineWidth', 2, 'DisplayName', 'k_{BRAF^{V600E}} (weak feedback)');
-plot(t, k_PI3K_eff, 'b-', 'LineWidth', 2, 'DisplayName', 'k_{PI3K} (with pS6K feedback)');
-plot(t, k_TSC2_ERK, 'g-', 'LineWidth', 2, 'DisplayName', 'k_{TSC2} (with ERK enhancement)');
+plot(t, k_RAF_act_eff, 'm-', 'LineWidth', 2, 'DisplayName', 'k_{RAF} (WT)');
+plot(t, k_PI3K_eff, 'b-', 'LineWidth', 2, 'DisplayName', 'k_{PI3K}');
+plot(t, k_TSC2_ERK, 'g-', 'LineWidth', 2, 'DisplayName', 'k_{TSC2} (ERK-enhanced)');
 xlabel('Time (minutes)', 'FontSize', 12);
 ylabel('Effective Rate Constant', 'FontSize', 12);
-title('Cross-Talk and Feedback Effects', 'FontSize', 14, 'FontWeight', 'bold');
+title('Rate Constants: Vemurafenib Effects', 'FontSize', 14, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 10);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
 % Pathway outputs comparison
 subplot(2, 3, 6);
-plot(t, ERK_P, 'r-', 'LineWidth', 2.5, 'DisplayName', 'ERK-P (MAPK output)');
+plot(t, ERK_P, 'r-', 'LineWidth', 2.5, 'DisplayName', 'ERK-P (MAPK)');
 hold on;
-plot(t, pAKT_full, 'b-', 'LineWidth', 2, 'DisplayName', 'pAKT (PI3K output)');
-plot(t, pS6K, 'g-', 'LineWidth', 2, 'DisplayName', 'pS6K (PI3K output)');
-plot(t, p4EBP1, 'm-', 'LineWidth', 2, 'DisplayName', 'p4EBP1 (PI3K output)');
+plot(t, pAKT_full, 'b-', 'LineWidth', 2, 'DisplayName', 'pAKT (PI3K)');
+plot(t, pS6K, 'g-', 'LineWidth', 2, 'DisplayName', 'pS6K (PI3K)');
+plot(t, p4EBP1, 'm-', 'LineWidth', 2, 'DisplayName', 'p4EBP1 (PI3K)');
 xlabel('Time (minutes)', 'FontSize', 12);
 ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
 title('All Pathway Outputs', 'FontSize', 14, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 10);
 grid on;
-xlim([0, 200]);
+xlim([0, tspan(2)]);
 hold off;
 
-sgtitle('BRAF^{V600E} Mutation Effects and Cross-Talk Analysis', ...
+sgtitle('Vemurafenib Effects: Adaptive Signaling and Cross-Talk', ...
         'FontSize', 16, 'FontWeight', 'bold');
 
 %% ============================================================================
@@ -589,51 +680,63 @@ fprintf('═══════════════════════�
 fprintf('   SUMMARY STATISTICS\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
 
-fprintf('MAPK PATHWAY:\n');
-[max_SOS_star, idx_SOS] = max(SOS_star);
-[max_RAS_GTP, idx_RAS] = max(RAS_GTP);
-[max_RAF_star, idx_RAF] = max(RAF_star);
-[max_BRAF_mut_star, idx_BRAF] = max(BRAF_mut_star);
-[max_MEK_P, idx_MEK] = max(MEK_P);
-[max_ERK_P, idx_ERK] = max(ERK_P);
-fprintf('  Peak SOS*:            %.4f (normalized [0,1]) at t = %.2f min\n', max_SOS_star, t(idx_SOS));
-fprintf('  Peak RAS-GTP:         %.4f (normalized [0,1]) at t = %.2f min\n', max_RAS_GTP, t(idx_RAS));
-fprintf('  Peak RAF* (WT):       %.4f (normalized [0,1]) at t = %.2f min\n', max_RAF_star, t(idx_RAF));
-fprintf('  Peak BRAF^{V600E}*:    %.4f (normalized [0,1]) at t = %.2f min\n', max_BRAF_mut_star, t(idx_BRAF));
-fprintf('  Peak MEK-P:           %.4f (normalized [0,1]) at t = %.2f min\n', max_MEK_P, t(idx_MEK));
-fprintf('  Peak ERK-P:           %.4f (normalized [0,1]) at t = %.2f min\n', max_ERK_P, t(idx_ERK));
+% Find drug addition time
+drug_time_idx = find(vemurafenib_signal > 0, 1);
+if isempty(drug_time_idx)
+    drug_time_idx = length(t);
+end
+drug_time = t(drug_time_idx);
 
-fprintf('\nPI3K/AKT/mTOR PATHWAY:\n');
-[max_PIP3, idx_PIP3] = max(PIP3);
-[max_pAKT_full, idx_pAKT] = max(pAKT_full);
-[max_Rheb_GTP, idx_Rheb] = max(Rheb_GTP);
-[max_mTORC1_active, idx_mTOR] = max(mTORC1_active);
-[max_pS6K, idx_S6K] = max(pS6K);
-[max_p4EBP1, idx_4EBP1] = max(p4EBP1);
-fprintf('  Peak PIP3:            %.4f (normalized [0,1]) at t = %.2f min\n', max_PIP3, t(idx_PIP3));
-fprintf('  Peak pAKT(Full):      %.4f (normalized [0,1]) at t = %.2f min\n', max_pAKT_full, t(idx_pAKT));
-fprintf('  Peak Rheb-GTP:        %.4f (normalized [0,1]) at t = %.2f min\n', max_Rheb_GTP, t(idx_Rheb));
-fprintf('  Peak mTORC1_active:   %.4f (normalized [0,1]) at t = %.2f min\n', max_mTORC1_active, t(idx_mTOR));
-fprintf('  Peak pS6K:            %.4f (normalized [0,1]) at t = %.2f min\n', max_pS6K, t(idx_S6K));
-fprintf('  Peak p4EBP1:          %.4f (normalized [0,1]) at t = %.2f min\n', max_p4EBP1, t(idx_4EBP1));
+fprintf('VEMURAFENIB TREATMENT:\n');
+fprintf('  Drug added at:        t = %.2f minutes\n', drug_time);
+fprintf('  Peak drug concentration: %.4f (normalized [0,1])\n', max(vemurafenib_signal));
 
-fprintf('\nBRAF^{V600E} MUTATION EFFECTS:\n');
-fprintf('  Peak RAF* (WT) / BRAF^{V600E}*: %.2f\n', max_RAF_star / max_BRAF_mut_star);
-fprintf('  Steady-state RAF* (WT) / BRAF^{V600E}*: %.2f\n', RAF_star(end) / BRAF_mut_star(end));
-fprintf('  BRAF^{V600E}* contribution to MEK-P: %.1f%%\n', ...
-        100 * max(contribution_mut) / (max(contribution_wt) + max(contribution_mut)));
+fprintf('\nMAPK PATHWAY - BEFORE vs AFTER VEMURAFENIB:\n');
+% Handle case where drug starts at t=0 (drug_time_idx = 1)
+if drug_time_idx > 1
+    before_idx = drug_time_idx - 1;
+else
+    before_idx = 1;  % Use initial condition if drug starts at t=0
+end
+ERK_P_before = ERK_P(before_idx);
+ERK_P_after = ERK_P(end);
+BRAF_mut_star_before = BRAF_mut_star(before_idx);
+BRAF_mut_star_after = BRAF_mut_star(end);
+RAS_GTP_before = RAS_GTP(before_idx);
+RAS_GTP_after = max(RAS_GTP(drug_time_idx:end));  % Peak after drug
+fprintf('  BRAF^{V600E}* before:  %.4f (normalized [0,1])\n', BRAF_mut_star_before);
+fprintf('  BRAF^{V600E}* after:   %.4f (normalized [0,1], %.1f%% reduction)\n', ...
+        BRAF_mut_star_after, 100 * (1 - BRAF_mut_star_after / BRAF_mut_star_before));
+fprintf('  ERK-P before:          %.4f (normalized [0,1])\n', ERK_P_before);
+fprintf('  ERK-P after:            %.4f (normalized [0,1], %.1f%% reduction)\n', ...
+        ERK_P_after, 100 * (1 - ERK_P_after / ERK_P_before));
+fprintf('  RAS-GTP before:        %.4f (normalized [0,1])\n', RAS_GTP_before);
+fprintf('  RAS-GTP peak after:    %.4f (normalized [0,1], %.1f%% increase)\n', ...
+        RAS_GTP_after, 100 * (RAS_GTP_after / RAS_GTP_before - 1));
 
-fprintf('\nCROSS-TALK STRENGTHS:\n');
+fprintf('\nPI3K/AKT/mTOR PATHWAY - ADAPTIVE RESPONSE:\n');
+PI3K_active_before = PI3K_active(before_idx);
+PI3K_active_after = max(PI3K_active(drug_time_idx:end));
+pAKT_full_before = pAKT_full(before_idx);
+pAKT_full_after = max(pAKT_full(drug_time_idx:end));
+mTORC1_active_before = mTORC1_active(before_idx);
+mTORC1_active_after = mTORC1_active(end);
+fprintf('  PI3K_active before:   %.4f (normalized [0,1])\n', PI3K_active_before);
+fprintf('  PI3K_active peak after: %.4f (normalized [0,1], %.1f%% change)\n', ...
+        PI3K_active_after, 100 * (PI3K_active_after / PI3K_active_before - 1));
+fprintf('  pAKT(Full) before:    %.4f (normalized [0,1])\n', pAKT_full_before);
+fprintf('  pAKT(Full) peak after: %.4f (normalized [0,1], %.1f%% change)\n', ...
+        pAKT_full_after, 100 * (pAKT_full_after / pAKT_full_before - 1));
+fprintf('  mTORC1_active before: %.4f (normalized [0,1])\n', mTORC1_active_before);
+fprintf('  mTORC1_active after:  %.4f (normalized [0,1], %.1f%% change)\n', ...
+        mTORC1_active_after, 100 * (mTORC1_active_after / mTORC1_active_before - 1));
+
+fprintf('\nCROSS-TALK AND FEEDBACK STRENGTHS:\n');
+fprintf('  Vemurafenib inhibition (Hill): IC50 = %.4f (normalized [0,1]), Hill n = %.2f\n', IC50_vem, Hill_n);
 fprintf('  RAS → PI3K:           k_PI3K_RAS = %.2f\n', k_PI3K_RAS);
 fprintf('  ERK → TSC2:           alpha3 = %.2f\n', alpha3);
 fprintf('  AKT → RAF (WT only):  alpha2 = %.2f\n', alpha2);
 fprintf('  pS6K → PI3K:         alpha1 = %.2f\n', alpha1);
-
-fprintf('\nSTEADY-STATE VALUES (at t = 200 min):\n');
-fprintf('  ERK-P:                %.4f (normalized [0,1])\n', ERK_P(end));
-fprintf('  pAKT(Full):           %.4f (normalized [0,1])\n', pAKT_full(end));
-fprintf('  pS6K:                 %.4f (normalized [0,1])\n', pS6K(end));
-fprintf('  p4EBP1:               %.4f (normalized [0,1])\n', p4EBP1(end));
 
 fprintf('\n═══════════════════════════════════════════════════════════════════════════\n');
 fprintf('   SIMULATION COMPLETED SUCCESSFULLY!\n');
@@ -643,17 +746,17 @@ fprintf('═══════════════════════�
 % SAVE OUTPUTS
 % ============================================================================
 
-save('braf_mutant_crosstalk_output.mat', 't', 'ERK_P', 'pAKT_full', 'pS6K', ...
-     'p4EBP1', 'RAF_star', 'BRAF_mut_star', 'MEK_P', 'RAS_GTP', 'PIP3', ...
-     'Rheb_GTP', 'mTORC1_active', 'pRTK_signal');
-fprintf('Saved outputs to braf_mutant_crosstalk_output.mat\n');
+save('vemurafenib_output.mat', 't', 'ERK_P', 'pAKT_full', 'pS6K', 'p4EBP1', ...
+     'BRAF_mut_star', 'RAF_star', 'MEK_P', 'RAS_GTP', 'PIP3', 'Rheb_GTP', ...
+     'mTORC1_active', 'pRTK_signal', 'vemurafenib_signal');
+fprintf('Saved outputs to vemurafenib_output.mat\n');
 
 %% ============================================================================
 % ODE FUNCTION
 % ============================================================================
 
-function dydt = braf_mutant_crosstalk_odes(t, y, p)
-    % Integrated ODE system for MAPK and PI3K/AKT/mTOR pathways with BRAF^V600E mutation
+function dydt = vemurafenib_pathways_odes(t, y, p)
+    % Integrated ODE system for MAPK and PI3K/AKT/mTOR pathways with vemurafenib
     % y = [MAPK: Shc, pEGFR_Shc, pShc, Grb2, pShc_Grb2, SOS, pShc_Grb2_SOS, SOS_star,
     %      RAS_GDP, RAS_GTP, RAF, RAF_star, BRAF_mut, BRAF_mut_star, MEK, MEK_P, ERK, ERK_P;
     %      PI3K: PI3K, PI3K_active, PIP2, PIP3, AKT, pAKT_Thr308, pAKT_Ser473, pAKT_full,
@@ -697,14 +800,15 @@ function dydt = braf_mutant_crosstalk_odes(t, y, p)
     EBP1 = y(33);
     p4EBP1 = y(34);
     
-    % Get pRTK input signal at current time
+    % Get input signals at current time
     pRTK = p.pRTK_func(t);
+    vemurafenib = p.vemurafenib_func(t);
     
     % ========================================================================
     % CALCULATE FEEDBACK-MODULATED AND CROSS-TALK RATE CONSTANTS
     % ========================================================================
     
-    % MAPK pathway feedbacks (ERK-P)
+    % MAPK pathway feedbacks (ERK-P) - feedback is relieved when ERK-P drops
     k_on_Shc_eff = p.k_on_Shc / (1 + p.alpha_ERK_Shc * ERK_P);
     k_cat_SOS_eff = p.k_cat_SOS / (1 + p.alpha_ERK_SOS * ERK_P);
     k_RAF_act_eff = p.k_RAF_act / (1 + p.alpha_ERK_RAF * ERK_P);
@@ -713,13 +817,36 @@ function dydt = braf_mutant_crosstalk_odes(t, y, p)
     % Cross-talk: AKT → RAF (wild-type only, not BRAF^V600E)
     k_RAF_act_eff = k_RAF_act_eff / (1 + p.alpha2 * pAKT_full);
     
+    % VEMURAFENIB INHIBITION: BRAF^V600E activity reduced using Hill equation
+    % Hill equation: k_eff = k_base * IC50^n / (IC50^n + [Drug]^n)
+    % This gives sigmoidal inhibition curve with IC50 as half-maximal concentration
+    % When [Drug] = 0: k_eff = k_base (no inhibition)
+    % When [Drug] = IC50: k_eff = k_base/2 (50% inhibition)
+    % When [Drug] >> IC50: k_eff → 0 (full inhibition)
+    if vemurafenib <= 0
+        k_BRAF_mut_eff = p.k_BRAF_mut;  % No inhibition when drug concentration is zero
+    else
+        IC50_n = p.IC50_vem^p.Hill_n;
+        vem_n = vemurafenib^p.Hill_n;
+        k_BRAF_mut_eff = p.k_BRAF_mut * IC50_n / (IC50_n + vem_n);
+    end
+    
     % BRAF^V600E feedback (much weaker than wild-type)
-    k_BRAF_mut_eff = p.k_BRAF_mut / (1 + p.alpha_ERK_BRAF_mut * ERK_P);
+    k_BRAF_mut_eff = k_BRAF_mut_eff / (1 + p.alpha_ERK_BRAF_mut * ERK_P);
+    
+    % Paradoxical activation: Vemurafenib can trans-activate wild-type RAF
+    % (simplified: small increase in RAF activation when vemurafenib is present)
+    if vemurafenib > 0
+        k_RAF_paradox_eff = p.k_RAF_paradox * vemurafenib / (1 + vemurafenib);
+    else
+        k_RAF_paradox_eff = 0;
+    end
     
     % PI3K pathway feedback (pS6K)
     k_PI3K_eff = p.k_PI3K / (1 + p.alpha1 * pS6K);
     
     % Cross-talk: ERK → TSC2 (ERK-P enhances TSC2 inhibition)
+    % This is reduced when ERK-P drops after vemurafenib
     k_TSC2_ERK = p.k_TSC2_base + p.alpha3 * ERK_P;
     
     % ========================================================================
@@ -729,7 +856,7 @@ function dydt = braf_mutant_crosstalk_odes(t, y, p)
     % Shc–Grb2–SOS module
     r1_forward = k_on_Shc_eff * pRTK * Shc;
     r1_reverse = p.k_off_Shc * pEGFR_Shc;
-    r1_cat = p.k_cat1 * pEGFR_Shc;  % Shc phosphorylation
+    r1_cat = p.k_cat1 * pEGFR_Shc;
     r2_forward = p.k_on2 * pShc * Grb2;
     r2_reverse = p.k_off2 * pShc_Grb2;
     r3_forward = p.k_on3 * pShc_Grb2 * SOS;
@@ -741,17 +868,17 @@ function dydt = braf_mutant_crosstalk_odes(t, y, p)
     r5 = p.k_SOS * SOS_star * RAS_GDP;
     r6 = k_GTPase_eff * RAS_GTP;
     
-    % Wild-type RAF activation (RAS-dependent, AKT-inhibited)
-    r7 = k_RAF_act_eff * RAS_GTP * RAF;
+    % Wild-type RAF activation (RAS-dependent, AKT-inhibited, with paradoxical activation)
+    r7 = k_RAF_act_eff * RAS_GTP * RAF + k_RAF_paradox_eff * RAF;  % Paradoxical activation
     r8 = p.k_RAF_deact * RAF_star;
     
-    % BRAF^V600E constitutive activation (RAS-independent, AKT-resistant)
+    % BRAF^V600E constitutive activation (inhibited by vemurafenib)
     r9 = k_BRAF_mut_eff * BRAF_mut;
     r10 = p.k_BRAF_mut_deact * BRAF_mut_star;
     
     % MEK phosphorylation by both RAF* and BRAF^V600E*
     r11 = p.k_MEK * RAF_star * MEK;  % Wild-type RAF contribution
-    r12 = p.k_MEK * BRAF_mut_star * MEK;  % BRAF^V600E contribution
+    r12 = p.k_MEK * BRAF_mut_star * MEK;  % BRAF^V600E contribution (reduced by vemurafenib)
     r13 = p.k_MEK_deact * MEK_P;
     
     % ERK phosphorylation
@@ -764,6 +891,7 @@ function dydt = braf_mutant_crosstalk_odes(t, y, p)
     
     % PI3K module
     % PI3K activation by pRTK (with pS6K feedback) AND by RAS-GTP (cross-talk)
+    % RAS-GTP rebound after vemurafenib can increase PI3K activation
     r16 = k_PI3K_eff * pRTK * PI3K + p.k_PI3K_RAS * RAS_GTP * PI3K;  % Cross-talk: RAS → PI3K
     r17 = p.k_PI3K_deact * PI3K_active;
     r18 = p.k_PIP2_to_PIP3 * PI3K_active * PIP2;
@@ -780,7 +908,7 @@ function dydt = braf_mutant_crosstalk_odes(t, y, p)
     r25_full = p.k_AKT_deact * pAKT_full;
     
     % TSC2/Rheb module
-    % TSC2 inhibition by pAKT (base) AND by ERK-P (cross-talk)
+    % TSC2 inhibition by pAKT (base) AND by ERK-P (cross-talk, reduced when ERK-P drops)
     r26 = (p.k_TSC2_inh * pAKT_full + k_TSC2_ERK * ERK_P) * TSC2_active;  % Cross-talk: ERK → TSC2
     Rheb_GDP = 1.0 - Rheb_GTP;  % Normalized: total Rheb pool = 1.0
     r27 = p.k_Rheb_act * Rheb_GDP / (1 + TSC2_active);
