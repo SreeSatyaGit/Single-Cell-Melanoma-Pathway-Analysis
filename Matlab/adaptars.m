@@ -30,24 +30,30 @@ close all;
 clc;
 
 %% ============================================================================
-% INPUT SIGNAL: pEGFR(t)
+% INPUT SIGNAL: pEGFR(t) - Load from EGFR-HER3 model
 % ============================================================================
-% Define pEGFR as a function of time
-% Option 1: Use a transient pulse (exponential decay)
-% Option 2: Use a step function
-% Option 3: Import from previous EGFR-HER3 model simulation
 
-% Option 1: Exponential decay (transient pulse)
-%pEGFR_func = @(t) 2.0 * exp(-0.05 * t) .* (t >= 0);
-
-% Option 2: Step function (constant after t=0)
-% pEGFR_func = @(t) 1.5 * (t >= 0);
-
-% Option 3: Import from previous simulation (uncomment and modify as needed)
- %load('previous_simulation.mat', 't_prev', 'EEp'); % Load previous results
- pEGFR_func = @(t) interp1(t, EEp, t, 'linear', EEp(end)); % Interpolate pEGFR
-
-fprintf('Using pEGFR(t) as input signal.\n');
+% Load pEGFR (EEp) from previous EGFR-HER3 model simulation
+if exist('egfr_output.mat', 'file')
+    % Load with different variable names to avoid conflicts
+    load('egfr_output.mat', 't', 'EEp');
+    t_egfr = t;  % Rename to avoid conflict with anonymous function parameter
+    EEp_egfr = EEp;
+    
+    fprintf('Loaded pEGFR (EEp) from egfr_output.mat\n');
+    fprintf('  Time points: %d\n', length(t_egfr));
+    fprintf('  EEp range: %.4f to %.4f nM\n', min(EEp_egfr), max(EEp_egfr));
+    
+    % Create interpolation function
+    % Use loaded t_egfr and EEp_egfr, function parameter is t
+    pEGFR_func = @(t) interp1(t_egfr, EEp_egfr, t, 'linear', EEp_egfr(end));
+    
+    fprintf('Using pEGFR from EGFR-HER3 model as input signal.\n');
+else
+    % Fallback: Use exponential decay if file not found
+    warning('egfr_output.mat not found. Using default exponential decay for pEGFR.');
+    pEGFR_func = @(t) 2.0 * exp(-0.05 * t) .* (t >= 0);
+end
 
 %% ============================================================================
 % PARAMETERS
