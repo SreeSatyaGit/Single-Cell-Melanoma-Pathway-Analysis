@@ -73,8 +73,8 @@ pRTK_func = @(t) 1.0 * exp(-0.05 * t) .* (t >= 0);  % Normalized: starts at 1.0,
 
 % Define vemurafenib concentration as a function of time (normalized to [0, 1])
 % Option 1: Step function (constant drug concentration, normalized)
-% Drug is present from t=0 (experimental data includes drug from start)
-vemurafenib_func = @(t) 1.0 * (t >= 0);  % Normalized: drug = 1.0 (maximum) from t = 0
+% Drug is applied at t = 1500 minutes
+vemurafenib_func = @(t) 1.0 * (t >= 0);  % Normalized: drug = 1.0 (maximum) from t = 1500 min
 
 % Option 2: Ramp function (gradual increase)
 % vemurafenib_func = @(t) 1.0 * max(0, (t - 50) / 10) .* (t >= 50) .* (t <= 60) + 1.0 * (t > 60);
@@ -96,39 +96,39 @@ fprintf('NOTE: All rate constants have been reduced by a factor of 10 to slow do
 % MAPK PATHWAY PARAMETERS
 % ============================================================================
 
-% Shc–Grb2–SOS Module (slowed down by factor of 10)
-k_on_Shc = 0.001;      % nM^-1 min^-1 - Shc binding to pEGFR (base rate)
-k_off_Shc = 0.001;     % min^-1 - Dissociation of pEGFR:Shc
-k_cat1 = 0.05;         % min^-1 - Shc phosphorylation rate
-k_cat_SOS = 0.05;      % min^-1 - SOS activation rate (base rate)
-k_on2 = 0.005;         % nM^-1 min^-1 - Grb2 binding to pShc
-k_off2 = 0.005;        % min^-1 - Dissociation of pShc:Grb2
-k_on3 = 0.005;         % nM^-1 min^-1 - SOS binding to pShc:Grb2
-k_off3 = 0.005;        % min^-1 - Dissociation of ternary complex
-k_deg4 = 0.005;        % min^-1 - SOS* deactivation rate
+% Shc–Grb2–SOS Module 
+k_on_Shc = 10e-5;      % nM^-1 min^-1 - Shc binding to pEGFR (base rate)
+k_off_Shc = 10e-6;     % min^-1 - Dissociation of pEGFR:Shc
+k_cat1 = 10e-3;         % min^-1 - Shc phosphorylation rate
+k_cat_SOS = 7e-3;      % min^-1 - SOS activation rate (base rate)
+k_on2 = 10e-5;         % nM^-1 min^-1 - Grb2 binding to pShc
+k_off2 = 10e-4;        % min^-1 - Dissociation of pShc:Grb2
+k_on3 = 10e-3;         % nM^-1 min^-1 - SOS binding to pShc:Grb2
+k_off3 = 10e-3;        % min^-1 - Dissociation of ternary complex
+k_deg4 = 10e-5;        % min^-1 - SOS* deactivation rate
 
-% RAS Module (slowed down by factor of 10)
-k_SOS = 0.05;          % min^-1 - RAS activation rate by SOS*
-k_GTPase = 0.01;       % min^-1 - RAS GTP hydrolysis rate (base rate)
+% RAS Module 
+k_SOS = 10e-3;          % min^-1 - RAS activation rate by SOS*
+k_GTPase = 5e-3;       % min^-1 - RAS GTP hydrolysis rate (base rate)
 
-% RAF Isoforms (slowed down by factor of 10)
-k_BRAF_mut = 0.05;     % min^-1 - BRAF^V600E constitutive activation rate
-k_BRAF_mut_deact = 0.002; % min^-1 - BRAF^V600E* deactivation rate
-k_CRAF_base = 0.03;    % min^-1 - CRAF base activation rate (RAS-dependent)
-k_CRAF_deact = 0.005;  % min^-1 - CRAF* deactivation rate
-k_ARAF_base = 0.005;   % min^-1 - ARAF base activation rate (RAS-dependent, weak)
-k_ARAF_deact = 0.005;   % min^-1 - ARAF* deactivation rate
+% RAF Isoforms 
+k_BRAF_mut = 10e-2;     % min^-1 - BRAF^V600E constitutive activation rate
+k_BRAF_mut_deact = 10e-10; % min^-1 - BRAF^V600E* deactivation rate
+k_CRAF_base = 10e-3;    % min^-1 - CRAF base activation rate (RAS-dependent)
+k_CRAF_deact = 10e-4;  % min^-1 - CRAF* deactivation rate
+k_ARAF_base = 10e-3;   % min^-1 - ARAF base activation rate (RAS-dependent, weak)
+k_ARAF_deact = 10e-4;   % min^-1 - ARAF* deactivation rate
 
-% BRAF-WT for dimerization (slowed down by factor of 10)
-k_BRAF_WT = 0.02;      % min^-1 - BRAF-WT activation rate (RAS-dependent)
-k_BRAF_WT_deact = 0.005; % min^-1 - BRAF-WT* deactivation rate
-k_dimer = 0.01;        % nM^-1 min^-1 - Dimer formation rate (BRAF-WT with CRAF/ARAF)
+% BRAF-WT for dimerization 
+k_BRAF_WT = 10e-3;      % min^-1 - BRAF-WT activation rate (RAS-dependent)
+k_BRAF_WT_deact = 10e-5; % min^-1 - BRAF-WT* deactivation rate
+k_dimer = 6e-3;        % nM^-1 min^-1 - Dimer formation rate (BRAF-WT with CRAF/ARAF)
 
-% MEK and ERK Module (slowed down by factor of 10)
-k_MEK = 0.05;          % min^-1 - MEK phosphorylation rate
-k_MEK_deact = 0.005;   % min^-1 - MEK-P dephosphorylation rate
-k_ERK = 0.05;          % min^-1 - ERK phosphorylation rate
-k_ERK_deact = 0.005;   % min^-1 - ERK-P dephosphorylation rate
+% MEK and ERK Module 
+k_MEK = 10e-3;          % min^-1 - MEK phosphorylation rate
+k_MEK_deact = 10e-5;   % min^-1 - MEK-P dephosphorylation rate
+k_ERK = 10e-3;          % min^-1 - ERK phosphorylation rate
+k_ERK_deact = 10e-5;   % min^-1 - ERK-P dephosphorylation rate
 
 % MAPK Feedback Parameters (ERK-P feedback)
 alpha_ERK_Shc = 0.5;   % ERK-P inhibition of Shc binding
@@ -140,8 +140,8 @@ alpha_ERK_GTPase = 0.2; % ERK-P enhancement of RAS GTPase
 % ============================================================================
 
 % PI3K Module (slowed down by factor of 10)
-k_PI3K = 0.05;         % min^-1 - PI3K activation rate by pRTK (base rate)
-k_PI3K_deact = 0.005;  % min^-1 - PI3K deactivation rate
+k_PI3K = 10e-3;         % min^-1 - PI3K activation rate by pRTK (base rate)
+k_PI3K_deact = 10e-5;  % min^-1 - PI3K deactivation rate
 k_PIP2_to_PIP3 = 0.05; % min^-1 - PIP2 to PIP3 conversion rate
 k_PTEN = 0.01;         % min^-1 - PTEN-mediated PIP3 dephosphorylation
 
@@ -149,29 +149,29 @@ k_PTEN = 0.01;         % min^-1 - PTEN-mediated PIP3 dephosphorylation
 k_PI3K_RAS = 0.02;     % min^-1 - PI3K activation rate by RAS-GTP
 
 % AKT Module (slowed down by factor of 10)
-k_AKT_recruit = 0.03;  % min^-1 - AKT recruitment rate by PIP3
-k_AKT_Thr308 = 0.05;   % min^-1 - AKT Thr308 phosphorylation rate
-k_AKT_Ser473 = 0.03;   % min^-1 - AKT Ser473 phosphorylation rate
-k_AKT_deact = 0.005;   % min^-1 - AKT dephosphorylation rate
+k_AKT_recruit = 10e-3;  % min^-1 - AKT recruitment rate by PIP3
+k_AKT_Thr308 = 10e-3;   % min^-1 - AKT Thr308 phosphorylation rate
+k_AKT_Ser473 = 10e-3;   % min^-1 - AKT Ser473 phosphorylation rate
+k_AKT_deact = 10e-5;   % min^-1 - AKT dephosphorylation rate
 
 % TSC1/TSC2 and Rheb Module (slowed down by factor of 10)
-k_TSC2_inh = 0.05;     % min^-1 - TSC2 inhibition rate by pAKT (base rate)
-k_TSC2_base = 0.01;    % min^-1 - Base TSC2 inhibition rate
-k_Rheb_act = 0.05;     % min^-1 - Rheb-GTP activation rate
-k_Rheb_GTPase = 0.01;  % min^-1 - Rheb GTPase activity
+k_TSC2_inh = 10e-2;     % min^-1 - TSC2 inhibition rate by pAKT (base rate)
+k_TSC2_base = 10e-2;    % min^-1 - Base TSC2 inhibition rate
+k_Rheb_act = 10e-3;     % min^-1 - Rheb-GTP activation rate
+k_Rheb_GTPase = 10e-3;  % min^-1 - Rheb GTPase activity
 
 % Cross-talk: ERK → TSC2/mTORC1
 alpha3 = 0.2;          % ERK-P enhancement of TSC2 inhibition
 
 % mTORC1 Module (slowed down by factor of 10)
-k_mTORC1 = 0.05;       % min^-1 - mTORC1 activation rate
-k_mTORC1_deact = 0.005; % min^-1 - mTORC1 deactivation rate
+k_mTORC1 = 10e-3;       % min^-1 - mTORC1 activation rate
+k_mTORC1_deact = 10e-5; % min^-1 - mTORC1 deactivation rate
 
 % S6K and 4EBP1 Module (slowed down by factor of 10)
-k_S6K = 0.05;          % min^-1 - S6K phosphorylation rate
-k_S6K_deact = 0.005;   % min^-1 - pS6K dephosphorylation rate
-k_4EBP1 = 0.05;        % min^-1 - 4EBP1 phosphorylation rate
-k_4EBP1_deact = 0.005; % min^-1 - p4EBP1 dephosphorylation rate
+k_S6K = 10e-3;          % min^-1 - S6K phosphorylation rate
+k_S6K_deact = 10e-5;   % min^-1 - pS6K dephosphorylation rate
+k_4EBP1 = 10-3;        % min^-1 - 4EBP1 phosphorylation rate
+k_4EBP1_deact = 10e-5; % min^-1 - p4EBP1 dephosphorylation rate
 
 % PI3K Feedback Parameters
 alpha1 = 0.5;          % pS6K inhibition of PI3K activation
@@ -184,10 +184,11 @@ alpha2 = 0.3;          % pAKT inhibition of CRAF activation
 % ============================================================================
 
 % Hill equation parameters for vemurafenib inhibition of BRAF^V600E (normalized)
-IC50_vem = 0.1;        % Normalized [0,1] - Half-maximal inhibitory concentration (IC50)
+IC50_vem = 0.4;        % Normalized [0,1] - Half-maximal inhibitory concentration (IC50)
                       % At 10% of max drug concentration, 50% inhibition occurs
 Hill_n = 1.5;         % Hill coefficient (cooperativity, typically 1-2 for drugs)
-% Hill equation inhibition: k_BRAF_mut_eff = k_BRAF_mut * IC50^n / (IC50^n + [vemurafenib]^n)
+% Hill equation inhibition: 
+%k_BRAF_mut_eff = k_BRAF_mut * IC50^n / (IC50^n + (vemurafenib)^n);
 % This gives: 0% inhibition at [Drug]=0, 50% at [Drug]=IC50, ~100% at [Drug]>>IC50
 % All concentrations are normalized to [0, 1]
 
@@ -356,7 +357,7 @@ fprintf('Initial conditions set. BRAF^{V600E}* initially active.\n\n');
 % TIME SPAN
 % ============================================================================
 
-tspan = [0, 200];  % minutes
+tspan = [0, 3000];  % minutes
 
 %% ============================================================================
 % SOLVE ODE SYSTEM
@@ -428,239 +429,97 @@ fprintf('═══════════════════════�
 fprintf('   GENERATING VISUALIZATIONS\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
 
-% Figure 1: RAF Isoforms and Vemurafenib Effects
-figure('Position', [50, 50, 1600, 1000]);
+% Figure 1: Vemurafenib, BRAF, RAS, MEK, and ERK Species
+figure('Position', [50, 50, 1400, 900]);
 
-% BRAF^V600E inhibition
-subplot(3, 3, 1);
-yyaxis left;
-plot(t, vemurafenib_signal, 'k-', 'LineWidth', 2);
-ylabel('Normalized Vemurafenib [0,1]', 'FontSize', 10);
-yyaxis right;
+% Vemurafenib concentration
+subplot(2, 3, 1);
+plot(t, vemurafenib_signal, 'k-', 'LineWidth', 2.5, 'DisplayName', 'Vemurafenib');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('Vemurafenib', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+yline(0, 'k--', 'LineWidth', 1);
+hold off;
+
+% ALL RAS Species
+subplot(2, 3, 2);
+plot(t, RAS_GDP, 'c--', 'LineWidth', 1.5, 'DisplayName', 'RAS-GDP');
+hold on;
+plot(t, RAS_GTP, 'c-', 'LineWidth', 2.5, 'DisplayName', 'RAS-GTP');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('ALL RAS Species', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+hold off;
+
+% ALL BRAF Species
+subplot(2, 3, 3);
+plot(t, BRAF_mut, 'r--', 'LineWidth', 1.5, 'DisplayName', 'BRAF^{V600E}');
+hold on;
 plot(t, BRAF_mut_star, 'r-', 'LineWidth', 2.5, 'DisplayName', 'BRAF^{V600E}*');
-ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-xlabel('Time (minutes)', 'FontSize', 10);
-title('Vemurafenib Inhibition of BRAF^{V600E}', 'FontSize', 12, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 9);
+plot(t, BRAF_WT, 'b--', 'LineWidth', 1.5, 'DisplayName', 'BRAF-WT');
+plot(t, BRAF_WT_star, 'b-', 'LineWidth', 2, 'DisplayName', 'BRAF-WT*');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('ALL BRAF Species', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
 grid on;
 xlim([0, tspan(2)]);
 hold off;
 
-% CRAF paradoxical activation
-subplot(3, 3, 2);
-plot(t, CRAF_star, 'm-', 'LineWidth', 2.5, 'DisplayName', 'CRAF*');
+% MEK and pMEK
+subplot(2, 3, 4);
+plot(t, MEK, 'y--', 'LineWidth', 1.5, 'DisplayName', 'MEK');
 hold on;
-plot(t, BRAF_WT_CRAF_dimer, 'c--', 'LineWidth', 2, 'DisplayName', 'BRAF-WT:CRAF dimer');
-xlabel('Time (minutes)', 'FontSize', 10);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-title('CRAF Paradoxical Activation', 'FontSize', 12, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 9);
+plot(t, MEK_P, 'y-', 'LineWidth', 2.5, 'DisplayName', 'pMEK (MEK-P)');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('MEK and pMEK', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
 grid on;
 xlim([0, tspan(2)]);
 hold off;
 
-% ARAF paradoxical activation
-subplot(3, 3, 3);
-plot(t, ARAF_star, 'g-', 'LineWidth', 2, 'DisplayName', 'ARAF*');
+% ERK and pERK
+subplot(2, 3, 5);
+plot(t, ERK, 'g--', 'LineWidth', 1.5, 'DisplayName', 'ERK');
 hold on;
-plot(t, BRAF_WT_ARAF_dimer, 'b--', 'LineWidth', 2, 'DisplayName', 'BRAF-WT:ARAF dimer');
-xlabel('Time (minutes)', 'FontSize', 10);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-title('ARAF Paradoxical Activation (Minor)', 'FontSize', 12, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 9);
+plot(t, ERK_P, 'g-', 'LineWidth', 2.5, 'DisplayName', 'pERK (ERK-P)');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('ERK and pERK', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
 grid on;
 xlim([0, tspan(2)]);
 hold off;
 
-% All RAF isoforms comparison
-subplot(3, 3, 4);
-plot(t, BRAF_mut_star, 'r-', 'LineWidth', 2.5, 'DisplayName', 'BRAF^{V600E}*');
+% Combined MAPK cascade
+subplot(2, 3, 6);
+plot(t, RAS_GTP, 'c-', 'LineWidth', 2, 'DisplayName', 'RAS-GTP');
 hold on;
-plot(t, CRAF_star, 'm-', 'LineWidth', 2, 'DisplayName', 'CRAF*');
-plot(t, ARAF_star, 'g-', 'LineWidth', 2, 'DisplayName', 'ARAF*');
-plot(t, BRAF_WT_star, 'b-', 'LineWidth', 1.5, 'DisplayName', 'BRAF-WT*');
-xlabel('Time (minutes)', 'FontSize', 10);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-title('All RAF Isoforms', 'FontSize', 12, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 9);
+plot(t, MEK_P, 'y-', 'LineWidth', 2, 'DisplayName', 'pMEK');
+plot(t, ERK_P, 'g-', 'LineWidth', 2.5, 'DisplayName', 'pERK');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('MAPK Cascade: RAS → MEK → ERK', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
 grid on;
 xlim([0, tspan(2)]);
 hold off;
 
-% MEK-P activation from all RAF isoforms
-subplot(3, 3, 5);
+sgtitle('BRAF, RAS, MEK, and ERK Species Dynamics', ...
+        'FontSize', 16, 'FontWeight', 'bold');
+
+% Calculate contributions for summary statistics
 contribution_BRAF_mut = k_MEK * BRAF_mut_star .* MEK;
 contribution_CRAF = k_MEK * CRAF_star .* MEK;
 contribution_ARAF = k_MEK * ARAF_star .* MEK;
 contribution_BRAF_WT = k_MEK * BRAF_WT_star .* MEK;
-plot(t, contribution_BRAF_mut, 'r-', 'LineWidth', 2, 'DisplayName', 'BRAF^{V600E}*');
-hold on;
-plot(t, contribution_CRAF, 'm-', 'LineWidth', 2, 'DisplayName', 'CRAF*');
-plot(t, contribution_ARAF, 'g-', 'LineWidth', 1.5, 'DisplayName', 'ARAF*');
-plot(t, contribution_BRAF_WT, 'b-', 'LineWidth', 1.5, 'DisplayName', 'BRAF-WT*');
-plot(t, MEK_P, 'k--', 'LineWidth', 2, 'DisplayName', 'Total MEK-P');
-xlabel('Time (minutes)', 'FontSize', 10);
-ylabel('Rate (normalized [0,1]/min)', 'FontSize', 10);
-title('MEK-P Activation: All RAF Contributions', 'FontSize', 12, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 9);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-% ERK-P output
-subplot(3, 3, 6);
-plot(t, MEK_P, 'y-', 'LineWidth', 2, 'DisplayName', 'MEK-P');
-hold on;
-plot(t, ERK_P, 'r-', 'LineWidth', 2.5, 'DisplayName', 'ERK-P');
-xlabel('Time (minutes)', 'FontSize', 10);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-title('MAPK: MEK & ERK', 'FontSize', 12, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 9);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-% PI3K pathway
-subplot(3, 3, 7);
-plot(t, PI3K_active, 'b-', 'LineWidth', 2, 'DisplayName', 'PI3K_active');
-hold on;
-plot(t, PIP3, 'r-', 'LineWidth', 2, 'DisplayName', 'PIP3');
-xlabel('Time (minutes)', 'FontSize', 10);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-title('PI3K: PI3K & PIP3', 'FontSize', 12, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 9);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-% AKT and mTORC1
-subplot(3, 3, 8);
-plot(t, pAKT_full, 'b-', 'LineWidth', 2.5, 'DisplayName', 'pAKT(Full)');
-hold on;
-plot(t, mTORC1_active, 'm-', 'LineWidth', 2, 'DisplayName', 'mTORC1_active');
-xlabel('Time (minutes)', 'FontSize', 10);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-title('PI3K: AKT & mTORC1', 'FontSize', 12, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 9);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-% Downstream outputs
-subplot(3, 3, 9);
-plot(t, pS6K, 'r-', 'LineWidth', 2, 'DisplayName', 'pS6K');
-hold on;
-plot(t, p4EBP1, 'b-', 'LineWidth', 2, 'DisplayName', 'p4EBP1');
-xlabel('Time (minutes)', 'FontSize', 10);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 10);
-title('PI3K: mTORC1 Outputs', 'FontSize', 12, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 9);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-sgtitle('Vemurafenib Effects: BRAF^{V600E}, CRAF, and ARAF', ...
-        'FontSize', 16, 'FontWeight', 'bold');
-
-% Figure 2: Paradoxical Activation and Cross-Talk
-figure('Position', [100, 100, 1400, 900]);
-
-% Paradoxical activation mechanism
-subplot(2, 3, 1);
-plot(t, vemurafenib_signal, 'k-', 'LineWidth', 2, 'DisplayName', 'Vemurafenib');
-hold on;
-plot(t, BRAF_WT_star, 'b-', 'LineWidth', 2, 'DisplayName', 'BRAF-WT*');
-plot(t, BRAF_WT_CRAF_dimer, 'c-', 'LineWidth', 2, 'DisplayName', 'BRAF-WT:CRAF dimer');
-plot(t, CRAF_star, 'm-', 'LineWidth', 2.5, 'DisplayName', 'CRAF* (paradoxical)');
-xlabel('Time (minutes)', 'FontSize', 12);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
-title('Paradoxical CRAF Activation Mechanism', 'FontSize', 14, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-% Adaptive RAS-GTP rebound
-subplot(2, 3, 2);
-plot(t, ERK_P, 'r-', 'LineWidth', 2, 'DisplayName', 'ERK-P');
-hold on;
-plot(t, RAS_GTP, 'c-', 'LineWidth', 2, 'DisplayName', 'RAS-GTP');
-plot(t, CRAF_star, 'm-', 'LineWidth', 2, 'DisplayName', 'CRAF*');
-xlabel('Time (minutes)', 'FontSize', 12);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
-title('Adaptive Response: RAS-GTP Rebound', 'FontSize', 14, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-% PI3K pathway rebound
-subplot(2, 3, 3);
-plot(t, RAS_GTP, 'c-', 'LineWidth', 2, 'DisplayName', 'RAS-GTP');
-hold on;
-plot(t, PI3K_active, 'b-', 'LineWidth', 2, 'DisplayName', 'PI3K_active');
-plot(t, pAKT_full, 'g-', 'LineWidth', 2, 'DisplayName', 'pAKT(Full)');
-xlabel('Time (minutes)', 'FontSize', 12);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
-title('PI3K Pathway Rebound (RAS → PI3K)', 'FontSize', 14, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-% mTORC1 response
-subplot(2, 3, 4);
-plot(t, ERK_P, 'r-', 'LineWidth', 2, 'DisplayName', 'ERK-P');
-hold on;
-plot(t, TSC2_active, 'g-', 'LineWidth', 2, 'DisplayName', 'TSC2_active');
-plot(t, mTORC1_active, 'm-', 'LineWidth', 2, 'DisplayName', 'mTORC1_active');
-xlabel('Time (minutes)', 'FontSize', 12);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
-title('mTORC1 Response to ERK-P Reduction', 'FontSize', 14, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-% Effective rate constants
-subplot(2, 3, 5);
-IC50_n = IC50_vem^Hill_n;
-vem_n = vemurafenib_signal.^Hill_n;
-k_BRAF_mut_eff = k_BRAF_mut * IC50_n ./ (IC50_n + vem_n);
-k_BRAF_mut_eff(vemurafenib_signal <= 0) = k_BRAF_mut;
-k_CRAF_eff = k_CRAF_base * (1 + gamma * vemurafenib_signal .* BRAF_WT_star) ./ (1 + alpha2 * pAKT_full);
-k_ARAF_eff = k_ARAF_base * (1 + delta * vemurafenib_signal .* BRAF_WT_star);
-k_PI3K_eff = k_PI3K ./ (1 + alpha1 * pS6K);
-plot(t, k_BRAF_mut_eff, 'r-', 'LineWidth', 2, 'DisplayName', 'k_{BRAF^{V600E}} (inhibited)');
-hold on;
-plot(t, k_CRAF_eff, 'm-', 'LineWidth', 2, 'DisplayName', 'k_{CRAF} (paradoxical)');
-plot(t, k_ARAF_eff, 'g-', 'LineWidth', 2, 'DisplayName', 'k_{ARAF} (paradoxical)');
-plot(t, k_PI3K_eff, 'b-', 'LineWidth', 2, 'DisplayName', 'k_{PI3K}');
-xlabel('Time (minutes)', 'FontSize', 12);
-ylabel('Effective Rate Constant', 'FontSize', 12);
-title('Rate Constants: Vemurafenib Effects', 'FontSize', 14, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-% All pathway outputs
-subplot(2, 3, 6);
-plot(t, ERK_P, 'r-', 'LineWidth', 2.5, 'DisplayName', 'ERK-P (MAPK)');
-hold on;
-plot(t, pAKT_full, 'b-', 'LineWidth', 2, 'DisplayName', 'pAKT (PI3K)');
-plot(t, pS6K, 'g-', 'LineWidth', 2, 'DisplayName', 'pS6K (PI3K)');
-plot(t, p4EBP1, 'm-', 'LineWidth', 2, 'DisplayName', 'p4EBP1 (PI3K)');
-xlabel('Time (minutes)', 'FontSize', 12);
-ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
-title('All Pathway Outputs', 'FontSize', 14, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-xlim([0, tspan(2)]);
-hold off;
-
-sgtitle('Paradoxical Activation and Cross-Talk Analysis', ...
-        'FontSize', 16, 'FontWeight', 'bold');
 
 %% ============================================================================
 % SUMMARY STATISTICS
@@ -814,13 +673,10 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
     k_GTPase_eff = p.k_GTPase + p.alpha_ERK_GTPase * ERK_P;
     
     % VEMURAFENIB INHIBITION: BRAF^V600E activity reduced using Hill equation
-    if vemurafenib <= 0
-        k_BRAF_mut_eff = p.k_BRAF_mut;  % No inhibition when drug concentration is zero
-    else
-        IC50_n = p.IC50_vem^p.Hill_n;
-        vem_n = vemurafenib^p.Hill_n;
-        k_BRAF_mut_eff = p.k_BRAF_mut * IC50_n / (IC50_n + vem_n);
-    end
+    IC50_n = p.IC50_vem^p.Hill_n;
+    vem_n = vemurafenib^p.Hill_n;
+    k_BRAF_mut_eff = p.k_BRAF_mut * IC50_n / (IC50_n + vem_n);
+   
     
     % CRAF activation: base rate + paradoxical activation - AKT inhibition
     % Paradoxical activation: vemurafenib + BRAF-WT* dimer → CRAF* activation
@@ -898,6 +754,11 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
     % ERK phosphorylation
     r26 = p.k_ERK * MEK_P * ERK;
     r27 = p.k_ERK_deact * ERK_P;
+
+    % DUSP6 
+
+
+    % Sprouty 
     
     % ========================================================================
     % PI3K/AKT/mTOR PATHWAY REACTIONS
