@@ -16,8 +16,8 @@
 % - Parameter optimization to fit experimental data
 %
 % Model Structure:
-% - 49 species (48 original + 1 dimer complex)
-% - 52 parameters (46 original + 6 paradoxical activation)
+% - 62 species (49 original + 11 new: Her2, Her3, p85, p85 complexes)
+% - 60 parameters (52 original + 8 new: Her2/Her3 activation, p85 binding/recruitment)
 % - Time units: seconds (experimental data in hours, converted)
 %
 % =============================================================================
@@ -46,6 +46,8 @@ params.RTK.k_off = 10e-6;         % EGFR dissociation rate (min^-1)
 params.RTK.k_cat = 10e-3;         % EGFR phosphorylation rate (min^-1)
 params.RTK.k_degrad = 10e-7;      % EGFR degradation rate (min^-1)
 params.RTK.k_ERK_inhib = 20e-6;   % ERK feedback on EGFR (min^-1)
+params.RTK.k_Her2_act = 10e-5;    % Her2 activation rate (min^-1)
+params.RTK.k_Her3_act = 10e-5;    % Her3 activation rate (min^-1)
 
 % ----------------------------------------------------------------------------
 % 1.2 Shc/Grb2/SOS Module Parameters
@@ -132,14 +134,21 @@ params.Paradox.k_dimer_dissoc = 1e-5;    % Dimer dissociation rate (min^-1)
 params.Paradox.gamma = 0.5;              % Paradoxical CRAF activation strength
 
 % ----------------------------------------------------------------------------
-% 1.13 PI3K/AKT/mTOR Module Parameters
+% 1.13 PI3K/AKT/mTOR Module Parameters (EXPANDED with p85 recruitment)
 % ----------------------------------------------------------------------------
-params.PI3K.k_EGFR_act = 10e-4;     % PI3K activation by EGFR (min^-1)
-params.PI3K.k_MTOR_feedback = 10e-4; % mTOR feedback on PI3K (min^-1)
-params.AKT.k_act = 10e-5;           % AKT activation rate (min^-1)
-params.AKT.k_degrad = 10e-7;        % AKT degradation (min^-1)
-params.mTOR.kb1 = 10e-8;            % mTOR activation parameter
-params.mTOR.k43b1 = 10e-3;          % mTOR activation parameter
+% p85 regulatory subunit binding to phosphotyrosine sites
+params.PI3K.k_p85_bind_EGFR = 10e-4;   % p85 binding to pEGFR (min^-1)
+params.PI3K.k_p85_bind_Her2 = 10e-4;   % p85 binding to pHer2 (min^-1)
+params.PI3K.k_p85_bind_Her3 = 10e-4;   % p85 binding to pHer3 (min^-1)
+params.PI3K.k_p85_bind_IGFR = 10e-4;   % p85 binding to pIGFR (min^-1)
+params.PI3K.k_p85_unbind = 10e-5;      % p85 unbinding from RTKs (min^-1)
+% PI3K recruitment and activation
+params.PI3K.k_PI3K_recruit = 10e-4;    % PI3K recruitment by p85:RTK (min^-1)
+params.PI3K.k_MTOR_feedback = 10e-4;   % mTOR feedback on PI3K (min^-1)
+params.AKT.k_act = 10e-5;              % AKT activation rate (min^-1)
+params.AKT.k_degrad = 10e-7;           % AKT degradation (min^-1)
+params.mTOR.kb1 = 10e-8;               % mTOR activation parameter
+params.mTOR.k43b1 = 10e-3;             % mTOR activation parameter
 
 % ----------------------------------------------------------------------------
 % 1.14 General Degradation Parameters
@@ -156,9 +165,13 @@ params_vector = [
     p.SOS.k_Sprty_inhib, p.SOS.k_SOS_bind, p.SOS.k_ERK_phos, ...
     p.RAF.k_ERK_phos_CRAF, p.RAF.k_CRAF_degrad, p.MEK.k_ERK_phos, p.MEK.k_degrad, ...
     p.ERK.k_DUSP_inhib, p.ERK.k_degrad, p.BRAF.k_inhib, p.DUSP.k_DUSP_stop, p.DUSP.k_max_tx, ...
-    p.SPRY.k_max_tx, p.SPRY.k_come_down, p.Degrad.general, p.SPRY.k_mRNA_decay, p.DUSP.k_max_tx, p.SPRY.k_max_tx, ...
+    p.SPRY.k_max_tx, p.SPRY.k_come_down, p.Degrad.general, p.SPRY.k_mRNA_decay, ...
+    p.DUSP.k_max_tx, p.SPRY.k_max_tx, ...  % km_Dusp and km_Sprty (same as k_max_tx for Hill equation)
     p.ERK.k_DUSP_dephos, p.DUSP.k_DUSP_deg, ...
-    p.PI3K.k_EGFR_act, p.PI3K.k_MTOR_feedback, ...
+    p.RTK.k_Her2_act, p.RTK.k_Her3_act, ...  % NEW: Her2/Her3 activation
+    p.PI3K.k_p85_bind_EGFR, p.PI3K.k_p85_bind_Her2, p.PI3K.k_p85_bind_Her3, p.PI3K.k_p85_bind_IGFR, ...  % NEW: p85 binding
+    p.PI3K.k_p85_unbind, p.PI3K.k_PI3K_recruit, ...  % NEW: p85 unbinding and PI3K recruitment
+    p.PI3K.k_MTOR_feedback, ...
     p.AKT.k_act, p.AKT.k_degrad, ...
     p.mTOR.kb1, p.mTOR.k43b1, ...
     p.KSR.k_phos, p.KSR.k_dephos, ...
@@ -168,7 +181,12 @@ params_vector = [
     p.Paradox.gamma, p.Vemurafenib.IC50, p.Vemurafenib.Hill_n
 ];
 
-fprintf('Parameters organized by pathway modules.\n\n');
+% Verify parameter vector length
+if length(params_vector) ~= 59
+    error('Parameter vector has %d elements, expected 59!', length(params_vector));
+end
+
+fprintf('Parameters organized by pathway modules. Total: %d parameters.\n\n', length(params_vector));
 
 %% ============================================================================
 % SECTION 2: INITIAL CONDITIONS
@@ -179,8 +197,10 @@ fprintf('Setting initial conditions...\n');
 % Define initial conditions for each species
 % Format: [inactive, intermediate, active] or [inactive, active]
 
-% RTK/EGFR Module
+% RTK/EGFR Module (EXPANDED)
 IC.EGFR = [1.0, 0.0, 0.0];          % EGFR, EGFR:ligand, pEGFR
+IC.Her2 = [1.0, 0.0, 0.0];          % Her2, Her2:ligand, pHer2 (NEW)
+IC.Her3 = [1.0, 0.0, 0.0];          % Her3, Her3:ligand, pHer3 (NEW)
 IC.SHC = [1.0, 0.0, 1.0];           % Shc, pEGFR:Shc, pShc
 IC.Grb2_SOS = [0.0, 0.0];           % Grb2, pShc:Grb2:SOS
 
@@ -207,10 +227,16 @@ IC.pMEK_degrad = [1.0];
 IC.pCRAF_degrad = [1.0];
 IC.DUSP_stop = [1.0];
 
-% PI3K/AKT/mTOR Module
+% PI3K/AKT/mTOR Module (EXPANDED with p85 recruitment)
 IC.IGFR = [1.0, 0.0, 0.0];          % IGFR, IGFR:ligand, pIGFR
 IC.IRS = [1.0, 0.0];                % IRS, pIRS
-IC.PI3K = [1.0, 0.0];               % PI3K, PI3K_active
+IC.p85 = [1.0];                     % p85 regulatory subunit (free) (NEW)
+IC.p85_EGFR = [0.0];                % p85:pEGFR complex (NEW)
+IC.p85_Her2 = [0.0];                 % p85:pHer2 complex (NEW)
+IC.p85_Her3 = [0.0];                 % p85:pHer3 complex (NEW)
+IC.p85_IGFR = [0.0];                 % p85:pIGFR complex (NEW)
+IC.PI3K = [1.0, 0.0];               % PI3K (p110), PI3K_active
+IC.PIP = [1.0, 0.0];                % PIP2, PIP3 (NEW - was missing!)
 IC.AKT = [1.0, 0.0];                % AKT, pAKT
 IC.FOXO = [0.0];
 IC.mTORC = [1.0, 0.0];              % mTORC, mTORC_active
@@ -223,14 +249,23 @@ IC.KSR = [1.0, 0.0];                % KSR, pKSR
 IC.BRAF_CRAF_dimer = [0.0];         % BRAF-WT:CRAF dimer
 
 % Combine all initial conditions into state vector
+% New species order: EGFR(1-3), Her2(4-6), Her3(7-9), Shc(10-12), Grb2_SOS(13-14),
+% HRAS(15-16), NRAS(17-18), KRAS(19-21), CRAF(22-23), BRAF(24-25),
+% MEK(26-27), ERK(28-29), DUSP(30-31), SPRY(32-33),
+% Degrad(34-37), IGFR(38-40), IRS(41-42),
+% p85(43), p85 complexes(44-47), PI3K(48-49), PIP(50-51), AKT(52-53),
+% FOXO(54), mTORC(55-56), 4EBP1(57-59), KSR(60-61), Dimer(62)
+% Total: 62 species
 y0 = [
-    IC.EGFR, IC.SHC, IC.Grb2_SOS, ...
+    IC.EGFR, IC.Her2, IC.Her3, IC.SHC, IC.Grb2_SOS, ...
     IC.HRAS, IC.NRAS, IC.KRAS, ...
     IC.CRAF, IC.BRAF, ...
     IC.MEK, IC.ERK, ...
     IC.DUSP, IC.SPRY, ...
     IC.pERK_degrad, IC.pMEK_degrad, IC.pCRAF_degrad, IC.DUSP_stop, ...
-    IC.IGFR, IC.IRS, IC.PI3K, IC.AKT, IC.FOXO, IC.mTORC, IC.frebp1, ...
+    IC.IGFR, IC.IRS, ...
+    IC.p85, IC.p85_EGFR, IC.p85_Her2, IC.p85_Her3, IC.p85_IGFR, ...
+    IC.PI3K, IC.PIP, IC.AKT, IC.FOXO, IC.mTORC, IC.frebp1, ...
     IC.KSR, IC.BRAF_CRAF_dimer
 ];
 
@@ -247,15 +282,15 @@ timeStamps_hours = [0, 1, 4, 8, 24, 48];
 timeStamps_seconds = timeStamps_hours * 3600;  % Convert to seconds
 
 % Raw experimental data (not normalized)
-expData_raw.RAS_GTP = [0.558156831, 0.61832384, 0.614585492, 0.708019641, 0.999240675, 1.0];
+% Note: RAS_GTP removed from optimization as requested
+% expData_raw.RAS_GTP = [0.558156831, 0.61832384, 0.614585492, 0.708019641, 0.999240675, 1.0];
 expData_raw.pMEK = [1.75938884, 0.170160085, 0.095112609, 0.201000276, 0.219207054, 0.502831668];
 expData_raw.pERK = [2.903209735, 0.207867788, 0.303586121, 0.805254439, 1.408362153, 1.847606441];
 expData_raw.DUSP = [2.677161325, 2.782754577, 1.130758062, 0.395642757, 0.828575853, 0.916618219];
 expData_raw.pEGFR = [0.291928893, 0.392400458, 0.265016688, 0.394238749, 0.006158316, 0.008115099];
 expData_raw.pCRAF = [0.366397596, 0.537106733, 0.465541704, 0.586732657, 1.102322681, 0.269181259];
 expData_raw.pAKT = [0.513544148, 0.613178403, 1.03451863, 1.113391047, 0.535242724, 0.538273551];
-
-% Note: RAS_GTP data is the same as RASGtpValsExp_all from original code
+expData_raw.p4ebp1 = [1.002468056,1.276793699,1.252681407,1.707504483,1.271216967,0.61389625];
 
 % Normalize experimental data to [0, 1] using min-max normalization
 species_names = fieldnames(expData_raw);
@@ -292,19 +327,41 @@ ub(30) = 1e-3;
 lb(31) = 1e-7;  % kDuspDeg
 ub(31) = 1e-4;
 
-% Paradoxical activation parameters (parameters 47-52)
-lb(47) = 0.0;      % Vemurafenib concentration [0, 1]
-ub(47) = 1.0;
-lb(48) = 1e-7;     % kDimerForm
-ub(48) = 1e-3;
-lb(49) = 1e-6;     % kDimerDissoc
-ub(49) = 1e-3;
-lb(50) = 0.1;      % kParadoxCRAF
-ub(50) = 2.0;
-lb(51) = 0.01;     % IC50_vem
-ub(51) = 0.9;
-lb(52) = 0.5;      % Hill_n_vem
-ub(52) = 3.0;
+% Bounds for new Her2/Her3 activation parameters (parameters 32-33)
+lb(32) = 1e-7;  % k_Her2_act
+ub(32) = 1e-3;
+lb(33) = 1e-7;  % k_Her3_act
+ub(33) = 1e-3;
+
+% Bounds for p85 binding parameters (parameters 34-37)
+lb(34) = 1e-6;  % k_p85_bind_EGFR
+ub(34) = 1e-3;
+lb(35) = 1e-6;  % k_p85_bind_Her2
+ub(35) = 1e-3;
+lb(36) = 1e-6;  % k_p85_bind_Her3
+ub(36) = 1e-3;
+lb(37) = 1e-6;  % k_p85_bind_IGFR
+ub(37) = 1e-3;
+
+% Bounds for p85 unbinding and PI3K recruitment (parameters 38-39)
+lb(38) = 1e-7;  % k_p85_unbind
+ub(38) = 1e-4;
+lb(39) = 1e-6;  % k_PI3K_recruit
+ub(39) = 1e-3;
+
+% Paradoxical activation parameters (parameters 54-59, updated indices)
+lb(54) = 0.0;      % Vemurafenib concentration [0, 1]
+ub(54) = 1.0;
+lb(55) = 1e-7;     % kDimerForm
+ub(55) = 1e-3;
+lb(56) = 1e-6;     % kDimerDissoc
+ub(56) = 1e-3;
+lb(57) = 0.1;      % kParadoxCRAF
+ub(57) = 2.0;
+lb(58) = 0.01;     % IC50_vem
+ub(58) = 0.9;
+lb(59) = 0.5;      % Hill_n_vem
+ub(59) = 3.0;
 
 % Optimization options
 opts = optimoptions(@fmincon, ...
@@ -353,22 +410,24 @@ normit = @(v, mode) v ./ max(eps, ...
 
 % Extract and normalize model outputs
 model_outputs.pEGFR = normit(Y_all(:,3), 'max');
-model_outputs.RAS_GTP = normit(Y_all(:,14), 'last');
-model_outputs.pCRAF = normit(Y_all(:,17), 'max');
-model_outputs.pMEK = normit(Y_all(:,21), 'first');
-model_outputs.pERK = normit(Y_all(:,23), 'first');
-model_outputs.DUSP = normit(Y_all(:,24), 'max');
-model_outputs.pAKT = normit(Y_all(:,40), 'max');
+% model_outputs.RAS_GTP = normit(Y_all(:,20), 'last');  % Removed from optimization (KRAS-GTP is now y(20))
+model_outputs.pCRAF = normit(Y_all(:,23), 'max');  % Updated index: pCRAF is now y(23)
+model_outputs.pMEK = normit(Y_all(:,27), 'first');  % Updated index: pMEK is now y(27)
+model_outputs.pERK = normit(Y_all(:,29), 'first');  % Updated index: pERK is now y(29)
+model_outputs.DUSP = normit(Y_all(:,31), 'max');  % Updated index: DUSP is now y(31)
+model_outputs.pAKT = normit(Y_all(:,53), 'max');  % Updated index: pAKT is now y(53)
+model_outputs.p4EBP1 = normit(Y_all(:,59), 'max');  % Updated index: p4EBP1 is now y(59)
 
 % Calculate fit errors
 fit_errors = struct();
 fit_errors.pEGFR = abs(model_outputs.pEGFR - expData_norm.pEGFR(:));
-fit_errors.RAS = abs(model_outputs.RAS_GTP - expData_norm.RAS_GTP(:));
+% fit_errors.RAS = abs(model_outputs.RAS_GTP - expData_norm.RAS_GTP(:));  % Removed from optimization
 fit_errors.pCRAF = abs(model_outputs.pCRAF - expData_norm.pCRAF(:));
 fit_errors.pMEK = abs(model_outputs.pMEK - expData_norm.pMEK(:));
 fit_errors.pERK = abs(model_outputs.pERK - expData_norm.pERK(:));
 fit_errors.DUSP = abs(model_outputs.DUSP - expData_norm.DUSP(:));
 fit_errors.pAKT = abs(model_outputs.pAKT - expData_norm.pAKT(:));
+fit_errors.p4EBP1 = abs(model_outputs.p4EBP1 - expData_norm.p4ebp1(:));
 
 % Display fit results
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
@@ -377,12 +436,13 @@ fprintf('═══════════════════════�
 fprintf('Total Fit Error: %.4f\n', errorOpt);
 fprintf('Individual Protein Errors (sum across all timepoints):\n');
 fprintf('  pEGFR: %.4f\n', sum(fit_errors.pEGFR));
-fprintf('  RAS:   %.4f\n', sum(fit_errors.RAS));
+% fprintf('  RAS:   %.4f\n', sum(fit_errors.RAS));  % Removed from optimization
 fprintf('  pCRAF: %.4f\n', sum(fit_errors.pCRAF));
 fprintf('  pMEK:  %.4f\n', sum(fit_errors.pMEK));
 fprintf('  pERK:  %.4f\n', sum(fit_errors.pERK));
 fprintf('  DUSP:  %.4f\n', sum(fit_errors.DUSP));
 fprintf('  pAKT:  %.4f\n', sum(fit_errors.pAKT));
+fprintf('  p4EBP1: %.4f\n', sum(fit_errors.p4EBP1));
 fprintf('\n');
 
 %% ============================================================================
@@ -400,12 +460,13 @@ tFine_seconds = tFine_hours * 3600;
 
 % Normalize smooth model outputs
 model_smooth.pEGFR = normit(Y_fine(:,3), 'max');
-model_smooth.RAS_GTP = normit(Y_fine(:,14), 'last');
-model_smooth.pCRAF = normit(Y_fine(:,17), 'max');
-model_smooth.pMEK = normit(Y_fine(:,21), 'first');
-model_smooth.pERK = normit(Y_fine(:,23), 'first');
-model_smooth.DUSP = normit(Y_fine(:,24), 'max');
-model_smooth.pAKT = normit(Y_fine(:,40), 'max');
+% model_smooth.RAS_GTP = normit(Y_fine(:,20), 'last');  % Removed from optimization
+model_smooth.pCRAF = normit(Y_fine(:,23), 'max');  % Updated index
+model_smooth.pMEK = normit(Y_fine(:,27), 'first');  % Updated index
+model_smooth.pERK = normit(Y_fine(:,29), 'first');  % Updated index
+model_smooth.DUSP = normit(Y_fine(:,31), 'max');  % Updated index
+model_smooth.pAKT = normit(Y_fine(:,53), 'max');  % Updated index
+model_smooth.p4EBP1 = normit(Y_fine(:,59), 'max');  % Updated index
 
 % Plotting colors
 data_color = [0.8, 0.2, 0.2];    % Red for experimental data
@@ -414,10 +475,15 @@ model_color = [0.2, 0.6, 0.2];   % Green for model fit
 % Create figure for all species
 figure('Name', 'Model Fit - All Species', 'Position', [50, 50, 1600, 1000]);
 
-species_to_plot = {'pEGFR', 'RAS_GTP', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT'};
+species_to_plot = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1'};  % RAS_GTP removed from optimization
+% Mapping between display names and experimental data field names (handle case differences)
+expData_field_map = containers.Map({'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1'}, ...
+                                    {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4ebp1'});
+
 for i = 1:length(species_to_plot)
     subplot(3, 3, i);
     species = species_to_plot{i};
+    exp_field = expData_field_map(species);  % Get correct field name for experimental data
     
     % Plot model fit
     plot(tFine_hours, model_smooth.(species), '-', 'Color', model_color, ...
@@ -425,7 +491,7 @@ for i = 1:length(species_to_plot)
     hold on;
     
     % Plot experimental data
-    plot(timeStamps_hours, expData_norm.(species), 'o', 'Color', data_color, ...
+    plot(timeStamps_hours, expData_norm.(exp_field), 'o', 'Color', data_color, ...
          'MarkerSize', 10, 'MarkerFaceColor', data_color, 'LineWidth', 2, ...
          'DisplayName', 'Experimental');
     
@@ -441,10 +507,10 @@ end
 
 % Fit error summary plot
 subplot(3, 3, 8);
-total_errors = [sum(fit_errors.pEGFR), sum(fit_errors.RAS), sum(fit_errors.pCRAF), ...
+total_errors = [sum(fit_errors.pEGFR), sum(fit_errors.pCRAF), ...
                 sum(fit_errors.pMEK), sum(fit_errors.pERK), sum(fit_errors.DUSP), ...
-                sum(fit_errors.pAKT)];
-protein_names = {'pEGFR', 'RAS', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT'};
+                sum(fit_errors.pAKT), sum(fit_errors.p4EBP1)];
+protein_names = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1'};  % RAS removed from optimization
 bar(1:length(protein_names), total_errors, 'FaceColor', [0.2, 0.6, 0.8], 'EdgeColor', 'k');
 set(gca, 'XTick', 1:length(protein_names), 'XTickLabel', protein_names);
 ylabel('Total Fit Error', 'FontSize', 12);
@@ -455,6 +521,156 @@ set(gca, 'FontSize', 11);
 
 sgtitle('MAPK/PI3K Pathway Model Fit Results', 'FontSize', 16, 'FontWeight', 'bold');
 
+%% ============================================================================
+% PARADOXICAL ACTIVATION VISUALIZATION
+% ============================================================================
+
+fprintf('Generating paradoxical activation plots...\n');
+
+% Extract paradoxical activation species from simulation (updated indices)
+paradox_species.dimer = Y_fine(:,62);           % BRAF-WT:CRAF dimer (now y(62))
+paradox_species.pCRAF = Y_fine(:,23);           % pCRAF (includes paradoxical activation, now y(23))
+paradox_species.CRAF = Y_fine(:,22);            % CRAF (inactive, now y(22))
+paradox_species.BRAF_P = Y_fine(:,25);          % BRAF^P (BRAF^V600E*, now y(25))
+paradox_species.BRAF = Y_fine(:,24);            % BRAF (inactive, now y(24))
+
+% Get vemurafenib concentration from optimized parameters (updated indices)
+Vemurafenib_conc = optimizedParams(54);  % Updated: Vemurafenib is now parameter 54
+kParadoxCRAF = optimizedParams(57);       % Updated: kParadoxCRAF is now parameter 57
+
+% Calculate paradoxical activation rate over time
+paradox_activation_rate = kParadoxCRAF * Vemurafenib_conc * paradox_species.dimer;
+
+% Normalize for visualization (optional - can show raw values too)
+paradox_species.dimer_norm = paradox_species.dimer ./ (max(paradox_species.dimer) + eps);
+paradox_species.pCRAF_norm = normit(paradox_species.pCRAF, 'max');
+paradox_species.CRAF_norm = normit(paradox_species.CRAF, 'max');
+paradox_species.BRAF_P_norm = normit(paradox_species.BRAF_P, 'max');
+paradox_species.BRAF_norm = normit(paradox_species.BRAF, 'max');
+paradox_activation_rate_norm = paradox_activation_rate ./ (max(paradox_activation_rate) + eps);
+
+% Create figure for paradoxical activation
+figure('Name', 'Paradoxical Activation Dynamics', 'Position', [100, 100, 1400, 900]);
+
+% Plot 1: Vemurafenib concentration and BRAF-WT:CRAF dimer
+subplot(2, 3, 1);
+yyaxis left
+plot(tFine_hours, ones(size(tFine_hours)) * Vemurafenib_conc, '-', 'Color', [0.8, 0.2, 0.2], ...
+     'LineWidth', 3, 'DisplayName', 'Vemurafenib');
+ylabel('Vemurafenib Concentration (normalized)', 'FontSize', 11);
+ylim([0, 1.1]);
+yyaxis right
+plot(tFine_hours, paradox_species.dimer_norm, '-', 'Color', [0.2, 0.6, 0.8], ...
+     'LineWidth', 2.5, 'DisplayName', 'BRAF-WT:CRAF Dimer');
+ylabel('Dimer Concentration (normalized)', 'FontSize', 11);
+xlabel('Time (hours)', 'FontSize', 11);
+title('Vemurafenib and Dimer Formation', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+set(gca, 'FontSize', 10);
+
+% Plot 2: CRAF and pCRAF dynamics
+subplot(2, 3, 2);
+plot(tFine_hours, paradox_species.CRAF_norm, '-', 'Color', [0.6, 0.6, 0.6], ...
+     'LineWidth', 2, 'DisplayName', 'CRAF (inactive)');
+hold on;
+plot(tFine_hours, paradox_species.pCRAF_norm, '-', 'Color', [0.2, 0.8, 0.2], ...
+     'LineWidth', 2.5, 'DisplayName', 'pCRAF (active)');
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Concentration (normalized)', 'FontSize', 11);
+title('CRAF Activation Dynamics', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+hold off;
+set(gca, 'FontSize', 10);
+
+% Plot 3: BRAF species
+subplot(2, 3, 3);
+plot(tFine_hours, paradox_species.BRAF_norm, '-', 'Color', [0.8, 0.6, 0.2], ...
+     'LineWidth', 2, 'DisplayName', 'BRAF (inactive)');
+hold on;
+plot(tFine_hours, paradox_species.BRAF_P_norm, '-', 'Color', [0.9, 0.3, 0.1], ...
+     'LineWidth', 2.5, 'DisplayName', 'BRAF^P (BRAF^V600E*)');
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Concentration (normalized)', 'FontSize', 11);
+title('BRAF Dynamics with Vemurafenib Inhibition', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+hold off;
+set(gca, 'FontSize', 10);
+
+% Plot 4: Paradoxical activation rate
+subplot(2, 3, 4);
+plot(tFine_hours, paradox_activation_rate_norm, '-', 'Color', [0.7, 0.1, 0.7], ...
+     'LineWidth', 2.5, 'DisplayName', 'Paradoxical Activation Rate');
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Activation Rate (normalized)', 'FontSize', 11);
+title('Paradoxical CRAF Activation Rate', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+set(gca, 'FontSize', 10);
+
+% Plot 5: Dimer formation and dissociation
+subplot(2, 3, 5);
+kDimerForm = optimizedParams(55);  % Updated: kDimerForm is now parameter 55
+kDimerDissoc = optimizedParams(56);  % Updated: kDimerDissoc is now parameter 56
+dimer_formation_rate = kDimerForm * paradox_species.BRAF_P .* paradox_species.CRAF * Vemurafenib_conc;
+dimer_dissociation_rate = kDimerDissoc * paradox_species.dimer;
+
+% Normalize rates for visualization
+dimer_formation_rate_norm = dimer_formation_rate ./ (max(dimer_formation_rate) + eps);
+dimer_dissociation_rate_norm = dimer_dissociation_rate ./ (max(dimer_dissociation_rate) + eps);
+
+plot(tFine_hours, dimer_formation_rate_norm, '-', 'Color', [0.2, 0.7, 0.3], ...
+     'LineWidth', 2, 'DisplayName', 'Dimer Formation');
+hold on;
+plot(tFine_hours, dimer_dissociation_rate_norm, '-', 'Color', [0.7, 0.2, 0.2], ...
+     'LineWidth', 2, 'DisplayName', 'Dimer Dissociation');
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Rate (normalized)', 'FontSize', 11);
+title('Dimer Formation vs Dissociation', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+hold off;
+set(gca, 'FontSize', 10);
+
+% Plot 6: Combined view - pCRAF with and without paradoxical activation
+subplot(2, 3, 6);
+% Calculate pCRAF contribution from normal activation (RAS-dependent)
+kpCraf = optimizedParams(4);
+RAS_GTP = Y_fine(:,20);  % Updated: KRAS-GTP is now y(20)
+normal_CRAF_activation = kpCraf * RAS_GTP .* paradox_species.CRAF;
+normal_CRAF_activation_norm = normal_CRAF_activation ./ (max(normal_CRAF_activation) + eps);
+
+plot(tFine_hours, normal_CRAF_activation_norm, '--', 'Color', [0.5, 0.5, 0.5], ...
+     'LineWidth', 2, 'DisplayName', 'Normal CRAF Activation (RAS-dependent)');
+hold on;
+plot(tFine_hours, paradox_activation_rate_norm, '--', 'Color', [0.7, 0.1, 0.7], ...
+     'LineWidth', 2, 'DisplayName', 'Paradoxical Activation');
+plot(tFine_hours, paradox_species.pCRAF_norm, '-', 'Color', [0.2, 0.8, 0.2], ...
+     'LineWidth', 2.5, 'DisplayName', 'Total pCRAF');
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Concentration/Rate (normalized)', 'FontSize', 11);
+title('CRAF Activation: Normal vs Paradoxical', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+hold off;
+set(gca, 'FontSize', 10);
+
+sgtitle('Paradoxical Activation Mechanism', 'FontSize', 16, 'FontWeight', 'bold');
+
+% Display paradoxical activation parameters
+fprintf('═══════════════════════════════════════════════════════════════════════════\n');
+fprintf('   PARADOXICAL ACTIVATION PARAMETERS\n');
+fprintf('═══════════════════════════════════════════════════════════════════════════\n');
+fprintf('Vemurafenib Concentration: %.4f (normalized [0,1])\n', Vemurafenib_conc);
+fprintf('Paradoxical Activation Strength (gamma): %.4f\n', kParadoxCRAF);
+fprintf('Dimer Formation Rate: %.6e (min^-1)\n', optimizedParams(55));
+fprintf('Dimer Dissociation Rate: %.6e (min^-1)\n', optimizedParams(56));
+fprintf('Maximum Dimer Concentration: %.6e\n', max(paradox_species.dimer));
+fprintf('Maximum Paradoxical Activation Rate: %.6e\n', max(paradox_activation_rate));
+fprintf('\n');
+
 fprintf('Visualization complete.\n\n');
 
 %% ============================================================================
@@ -463,37 +679,44 @@ fprintf('Visualization complete.\n\n');
 
 function dydt = Mapk_ODE(t, y, p)
     % MAPK/PI3K Pathway ODE System with Vemurafenib and Paradoxical Activation
+    % EXPANDED with Her2, Her3, and p85-mediated PI3K recruitment
     %
     % Inputs:
     %   t - time (seconds)
-    %   y - state vector (49 species)
-    %   p - parameter vector (52 parameters)
+    %   y - state vector (62 species)
+    %   p - parameter vector (60 parameters)
     %
     % Outputs:
     %   dydt - derivatives of all species
     %
     % State Vector (y):
     %   [1-3]   EGFR module: EGFR, EGFR:ligand, pEGFR
-    %   [4-6]   Shc module: Shc, pEGFR:Shc, pShc
-    %   [7-8]   Grb2/SOS: Grb2, pShc:Grb2:SOS
-    %   [9-10]  HRAS: HRAS-GDP, HRAS-GTP
-    %   [11-12] NRAS: NRAS-GDP, NRAS-GTP
-    %   [13-15] KRAS: KRAS-GDP, intermediate, KRAS-GTP
-    %   [16-17] CRAF: CRAF, pCRAF
-    %   [18-19] BRAF: BRAF, BRAF^P (BRAF^V600E*)
-    %   [20-21] MEK: MEK, pMEK
-    %   [22-23] ERK: ERK, pERK
-    %   [24-25] DUSP: mDUSP, DUSP
-    %   [26-27] SPRY: mSPRY, SPRY
-    %   [28-31] Degradation trackers
-    %   [32-34] IGFR module
-    %   [35-36] PI3K: PI3K, PI3K_active
-    %   [37-38] PIP: PIP2, PIP3
-    %   [39-40] AKT: AKT, pAKT
-    %   [41-43] FOXO, mTORC
-    %   [44-46] 4EBP1 module
-    %   [47-48] KSR: KSR, pKSR
-    %   [49]    BRAF-WT:CRAF dimer
+    %   [4-6]   Her2 module: Her2, Her2:ligand, pHer2 (NEW)
+    %   [7-9]   Her3 module: Her3, Her3:ligand, pHer3 (NEW)
+    %   [10-12] Shc module: Shc, pEGFR:Shc, pShc
+    %   [13-14] Grb2/SOS: Grb2, pShc:Grb2:SOS
+    %   [15-16] HRAS: HRAS-GDP, HRAS-GTP
+    %   [17-18] NRAS: NRAS-GDP, NRAS-GTP
+    %   [19-21] KRAS: KRAS-GDP, intermediate, KRAS-GTP
+    %   [22-23] CRAF: CRAF, pCRAF
+    %   [24-25] BRAF: BRAF, BRAF^P (BRAF^V600E*)
+    %   [26-27] MEK: MEK, pMEK
+    %   [28-29] ERK: ERK, pERK
+    %   [30-31] DUSP: mDUSP, DUSP
+    %   [32-33] SPRY: mSPRY, SPRY
+    %   [34-37] Degradation trackers
+    %   [38-40] IGFR module: IGFR, IGFR:ligand, pIGFR
+    %   [41-42] IRS: IRS, pIRS
+    %   [43]    p85: p85 regulatory subunit (free) (NEW)
+    %   [44-47] p85 complexes: p85:pEGFR, p85:pHer2, p85:pHer3, p85:pIGFR (NEW)
+    %   [48-49] PI3K: PI3K (p110), PI3K_active
+    %   [50-51] PIP: PIP2, PIP3
+    %   [52-53] AKT: AKT, pAKT
+    %   [54]    FOXO
+    %   [55-56] mTORC: mTORC, mTORC_active
+    %   [57-59] 4EBP1 module: 4EBP1, intermediate, p4EBP1
+    %   [60-61] KSR: KSR, pKSR
+    %   [62]    BRAF-WT:CRAF dimer
     
     % Unpack parameters
     ka1 = p(1);  kr1 = p(2);  kc1 = p(3);
@@ -504,45 +727,59 @@ function dydt = Mapk_ODE(t, y, p)
     kDuspInbErk = p(19); kErkDeg = p(20); kinbBraf = p(21); kDuspStop = p(22); kDusps = p(23);
     kSproutyForm = p(24); kSprtyComeDown = p(25); kdegrad = p(26); km_Sprty_decay = p(27); km_Dusp = p(28); km_Sprty = p(29);
     kErkDephos = p(30); kDuspDeg = p(31);
-    kEGFRPI3k = p(32); kMTOR_Feedback = p(33);
-    kAkt = p(34); kdegradAKT = p(35);
-    kb1 = p(36); k43b1 = p(37);
-    kKSRphos = p(38); kKSRdephos = p(39);
-    kMekByBraf = p(40); kMekByCraf = p(41); kMekByKSR = p(42);
-    Tram = p(43); K_tram_RAF = p(44); K_tram_KSR = p(45); n_tram = p(46);
-    Vemurafenib = p(47); kDimerForm = p(48); kDimerDissoc = p(49);
-    kParadoxCRAF = p(50); IC50_vem = p(51); Hill_n_vem = p(52);
+    kHer2_act = p(32); kHer3_act = p(33);  % NEW: Her2/Her3 activation (updated indices)
+    k_p85_bind_EGFR = p(34); k_p85_bind_Her2 = p(35); k_p85_bind_Her3 = p(36); k_p85_bind_IGFR = p(37);  % NEW: p85 binding (updated indices)
+    k_p85_unbind = p(38); k_PI3K_recruit = p(39);  % NEW: p85 unbinding and PI3K recruitment (updated indices)
+    kMTOR_Feedback = p(40);
+    kAkt = p(41); kdegradAKT = p(42);
+    kb1 = p(43); k43b1 = p(44);
+    kKSRphos = p(45); kKSRdephos = p(46);
+    kMekByBraf = p(47); kMekByCraf = p(48); kMekByKSR = p(49);
+    Tram = p(50); K_tram_RAF = p(51); K_tram_KSR = p(52); n_tram = p(53);
+    Vemurafenib = p(54); kDimerForm = p(55); kDimerDissoc = p(56);
+    kParadoxCRAF = p(57); IC50_vem = p(58); Hill_n_vem = p(59);
     
     % Initialize derivatives
-    dydt = zeros(49, 1);
+    dydt = zeros(62, 1);
     
     % ========================================================================
-    % MODULE 1: RTK/EGFR SIGNALING
+    % MODULE 1: RTK SIGNALING (EXPANDED: EGFR, Her2, Her3)
     % ========================================================================
+    % EGFR
     dydt(1) = -ka1*y(1) + kr1*y(2);                                    % EGFR
     dydt(2) = ka1*y(1) - kr1*y(2) - kc1*y(2);                          % EGFR:ligand
-    dydt(3) = kc1*y(2) - kDegradEgfr*y(3) - kErkInbEgfr*y(23)*y(3);    % pEGFR (with ERK feedback)
+    dydt(3) = kc1*y(2) - kDegradEgfr*y(3) - kErkInbEgfr*y(29)*y(3);    % pEGFR (with ERK feedback)
+    
+    % Her2 (NEW)
+    dydt(4) = -kHer2_act*y(4) + kr1*y(5);                              % Her2
+    dydt(5) = kHer2_act*y(4) - kr1*y(5) - kc1*y(5);                    % Her2:ligand
+    dydt(6) = kc1*y(5) - kDegradEgfr*y(6) - kErkInbEgfr*y(29)*y(6);    % pHer2 (with ERK feedback)
+    
+    % Her3 (NEW)
+    dydt(7) = -kHer3_act*y(7) + kr1*y(8);                              % Her3
+    dydt(8) = kHer3_act*y(7) - kr1*y(8) - kc1*y(8);                    % Her3:ligand
+    dydt(9) = kc1*y(8) - kDegradEgfr*y(9) - kErkInbEgfr*y(29)*y(9);    % pHer3 (with ERK feedback)
     
     % ========================================================================
     % MODULE 2: Shc/Grb2/SOS SIGNALING
     % ========================================================================
-    dydt(4) = -ka1*y(3)*y(4);                                          % Shc
-    dydt(5) = ka1*y(3)*y(4) - kShcDephos*y(6)*y(5);                    % pEGFR:Shc
-    dydt(6) = -kptpDeg*y(5)*y(6);                                      % pShc
+    dydt(10) = -ka1*y(3)*y(10);                                        % Shc
+    dydt(11) = ka1*y(3)*y(10) - kShcDephos*y(12)*y(11);                % pEGFR:Shc
+    dydt(12) = -kptpDeg*y(11)*y(12);                                   % pShc
     
-    dydt(7) = kGrb2CombShc*y(5)*y(3) - kSprtyInbGrb2*y(21)*y(7);       % Grb2 (with SPRY feedback)
-    dydt(8) = kSosCombGrb2*y(7)*y(5) - kErkPhosSos*y(19)*y(8);         % pShc:Grb2:SOS (with ERK feedback)
+    dydt(13) = kGrb2CombShc*y(11)*y(3) - kSprtyInbGrb2*y(27)*y(13);    % Grb2 (with SPRY feedback)
+    dydt(14) = kSosCombGrb2*y(13)*y(11) - kErkPhosSos*y(25)*y(14);     % pShc:Grb2:SOS (with ERK feedback)
     
     % ========================================================================
     % MODULE 3: RAS ACTIVATION
     % ========================================================================
-    dydt(9) = -ka1*y(8)*y(9);                                          % HRAS-GDP
-    dydt(10) = ka1*y(8)*y(9);                                          % HRAS-GTP
-    dydt(11) = -ka1*y(8)*y(11);                                        % NRAS-GDP
-    dydt(12) = ka1*y(8)*y(11);                                         % NRAS-GTP
-    dydt(13) = -ka1*y(8)*y(13);                                        % KRAS-GDP
-    dydt(14) = ka1*y(8)*y(13) - ka1*y(14)*y(15);                       % KRAS-GTP
-    dydt(15) = -ka1*y(14)*y(15);                                       % KRAS intermediate
+    dydt(15) = -ka1*y(14)*y(15);                                       % HRAS-GDP
+    dydt(16) = ka1*y(14)*y(15);                                        % HRAS-GTP
+    dydt(17) = -ka1*y(14)*y(17);                                       % NRAS-GDP
+    dydt(18) = ka1*y(14)*y(17);                                        % NRAS-GTP
+    dydt(19) = -ka1*y(14)*y(19);                                       % KRAS-GDP
+    dydt(20) = ka1*y(14)*y(19) - ka1*y(20)*y(21);                      % KRAS-GTP
+    dydt(21) = -ka1*y(20)*y(21);                                       % KRAS intermediate
     
     % ========================================================================
     % MODULE 4: RAF SIGNALING WITH PARADOXICAL ACTIVATION
@@ -554,68 +791,92 @@ function dydt = Mapk_ODE(t, y, p)
     kBRAF_eff = ka1 * IC50_n / (IC50_n + Vem_n + eps);  % Effective BRAF activation (inhibited)
     
     % Paradoxical activation: vemurafenib promotes BRAF-WT*:CRAF dimer → CRAF* activation
-    paradox_activation = kParadoxCRAF * Vemurafenib * y(49);  % y(49) = BRAF-WT:CRAF dimer
+    paradox_activation = kParadoxCRAF * Vemurafenib * y(62);  % y(62) = BRAF-WT:CRAF dimer
     
     % CRAF dynamics
-    dydt(16) = -kpCraf*y(14)*y(16) + kErkPhosPcraf*y(23)*y(17) + kPcrafDegrad*y(17)*y(30) ...
-               - kDimerForm*y(19)*y(16)*Vemurafenib + kDimerDissoc*y(49);  % CRAF (used in dimer)
-    dydt(17) = kpCraf*y(14)*y(16) - kErkPhosPcraf*y(23)*y(17) - kPcrafDegrad*y(17)*y(30) ...
+    dydt(22) = -kpCraf*y(20)*y(22) + kErkPhosPcraf*y(29)*y(23) + kPcrafDegrad*y(23)*y(36) ...
+               - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);  % CRAF (used in dimer)
+    dydt(23) = kpCraf*y(20)*y(22) - kErkPhosPcraf*y(29)*y(23) - kPcrafDegrad*y(23)*y(36) ...
                + paradox_activation;  % pCRAF (with paradoxical activation)
     
     % BRAF dynamics (with vemurafenib inhibition)
-    dydt(18) = -kBRAF_eff*y(18) - kDimerForm*y(19)*y(16)*Vemurafenib + kDimerDissoc*y(49);
-    dydt(19) = kBRAF_eff*y(18) - kinbBraf*y(19) - kDimerForm*y(19)*y(16)*Vemurafenib + kDimerDissoc*y(49);
+    dydt(24) = -kBRAF_eff*y(24) - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);
+    dydt(25) = kBRAF_eff*y(24) - kinbBraf*y(25) - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);
     
-    % BRAF-WT:CRAF dimer dynamics (y(49) = dimer complex)
-    dydt(49) = kDimerForm*y(19)*y(16)*Vemurafenib - kDimerDissoc*y(49) - kPcrafDegrad*y(49)*y(30);
+    % BRAF-WT:CRAF dimer dynamics (y(62) = dimer complex)
+    dydt(62) = kDimerForm*y(25)*y(22)*Vemurafenib - kDimerDissoc*y(62) - kPcrafDegrad*y(62)*y(36);
     
     % ========================================================================
     % MODULE 5: MEK PHOSPHORYLATION
     % ========================================================================
     % MEK can be phosphorylated by CRAF, BRAF, or KSR
-    raf_to_mek = (kpMek*y(17) + kMekByBraf*y(19) + kMekByCraf*y(17));
-    ksr_to_mek = (kMekByKSR * y(48));
+    raf_to_mek = (kpMek*y(23) + kMekByBraf*y(25) + kMekByCraf*y(23));
+    ksr_to_mek = (kMekByKSR * y(61));
     
-    dydt(20) = -(raf_to_mek + ksr_to_mek)*y(20) + kErkPhosMek*y(23)*y(21) + kMekDegrad*y(21)*y(29);
-    dydt(21) = (raf_to_mek + ksr_to_mek)*y(20) - kErkPhosMek*y(23)*y(21) - kMekDegrad*y(21)*y(29);
+    dydt(26) = -(raf_to_mek + ksr_to_mek)*y(26) + kErkPhosMek*y(29)*y(27) + kMekDegrad*y(27)*y(35);
+    dydt(27) = (raf_to_mek + ksr_to_mek)*y(26) - kErkPhosMek*y(29)*y(27) - kMekDegrad*y(27)*y(35);
     
     % ========================================================================
     % MODULE 6: ERK PHOSPHORYLATION
     % ========================================================================
-    dydt(22) = -kpErk*y(21)*y(22) + kDuspInbErk*y(24)*y(23) + kErkDeg*y(23)*y(28) + kErkDephos*y(24)*y(23);
-    dydt(23) = kpErk*y(21)*y(22) - kDuspInbErk*y(24)*y(23) - kErkDeg*y(23)*y(28) - kErkDephos*y(24)*y(23);
+    dydt(28) = -kpErk*y(27)*y(28) + kDuspInbErk*y(31)*y(29) + kErkDeg*y(29)*y(34) + kErkDephos*y(31)*y(29);
+    dydt(29) = kpErk*y(27)*y(28) - kDuspInbErk*y(31)*y(29) - kErkDeg*y(29)*y(34) - kErkDephos*y(31)*y(29);
     
     % ========================================================================
     % MODULE 7: DUSP FEEDBACK
     % ========================================================================
-    dydt(24) = km_Dusp*y(23)/(1 + (km_Dusp/kDusps)*y(23)) - kDuspStop*y(24)*y(31) - kDuspDeg*y(24)*y(23);
-    dydt(25) = -kDuspStop*y(24)*y(25);
+    dydt(30) = km_Dusp*y(29)/(1 + (km_Dusp/kDusps)*y(29)) - kDuspStop*y(30)*y(37) - kDuspDeg*y(30)*y(29);
+    dydt(31) = -kDuspStop*y(30)*y(31);
     
     % ========================================================================
     % MODULE 8: SPRY FEEDBACK
     % ========================================================================
-    dydt(26) = km_Sprty*y(23)/(1 + (km_Sprty/kSproutyForm)*y(23)) - kSprtyComeDown*y(26)*y(27);
-    dydt(27) = -kSprtyComeDown*y(26)*y(27);
+    dydt(32) = km_Sprty*y(29)/(1 + (km_Sprty/kSproutyForm)*y(29)) - kSprtyComeDown*y(32)*y(33);
+    dydt(33) = -kSprtyComeDown*y(32)*y(33);
     
     % ========================================================================
     % MODULE 9: DEGRADATION TRACKERS
     % ========================================================================
-    dydt(28) = -kErkDeg*y(23)*y(28);      % pERK degradation tracker
-    dydt(29) = -kMekDegrad*y(21)*y(29);   % pMEK degradation tracker
-    dydt(30) = -kPcrafDegrad*y(17)*y(30); % pCRAF degradation tracker
-    dydt(31) = -kDuspStop*y(24)*y(31);    % DUSP stop tracker
+    dydt(34) = -kErkDeg*y(29)*y(34);      % pERK degradation tracker
+    dydt(35) = -kMekDegrad*y(27)*y(35);   % pMEK degradation tracker
+    dydt(36) = -kPcrafDegrad*y(23)*y(36); % pCRAF degradation tracker
+    dydt(37) = -kDuspStop*y(30)*y(37);    % DUSP stop tracker
     
     % ========================================================================
     % MODULE 10: PI3K/AKT/mTOR SIGNALING
     % ========================================================================
     % IGFR module
-    dydt(32) = -ka1*y(32) + kr1*y(33);
-    dydt(33) = ka1*y(32) - kr1*y(33) - kc1*y(33);
-    dydt(34) = kc1*y(33) - kErkInbEgfr*y(23)*y(34);
+    dydt(38) = -ka1*y(38) + kr1*y(39);
+    dydt(39) = ka1*y(38) - kr1*y(39) - kc1*y(39);
+    dydt(40) = kc1*y(39) - kErkInbEgfr*y(29)*y(40);  % pIGFR
     
-    % PI3K module
-    dydt(35) = -ka1*y(3)*y(35) - kEGFRPI3k*y(34)*y(35);
-    dydt(36) = ka1*y(3)*y(35) + kEGFRPI3k*y(34)*y(35) - kMTOR_Feedback*y(43)*y(36);
+    % IRS module (moved before p85)
+    dydt(41) = -ka1*y(3)*y(41);  % IRS
+    dydt(42) = ka1*y(3)*y(41);   % pIRS
+    
+    % p85 regulatory subunit binding to phosphotyrosine sites
+    % p85 binds to: pEGFR (y(3)), pHer2 (y(6)), pHer3 (y(9)), pIGFR (y(40))
+    % Free p85 (y(43))
+    dydt(43) = -k_p85_bind_EGFR*y(3)*y(43) ...
+               - k_p85_bind_Her2*y(6)*y(43) ...
+               - k_p85_bind_Her3*y(9)*y(43) ...
+               - k_p85_bind_IGFR*y(40)*y(43) ...
+               + k_p85_unbind*(y(44) + y(45) + y(46) + y(47));
+    
+    % p85:RTK complexes
+    dydt(44) = k_p85_bind_EGFR*y(3)*y(43) - k_p85_unbind*y(44);  % p85:pEGFR
+    dydt(45) = k_p85_bind_Her2*y(6)*y(43) - k_p85_unbind*y(45);  % p85:pHer2
+    dydt(46) = k_p85_bind_Her3*y(9)*y(43) - k_p85_unbind*y(46);  % p85:pHer3
+    dydt(47) = k_p85_bind_IGFR*y(40)*y(43) - k_p85_unbind*y(47); % p85:pIGFR
+    
+    % PI3K module - recruitment by p85:RTK complexes
+    % Total p85:RTK complexes recruit PI3K (p110 catalytic subunit)
+    total_p85_RTK = y(44) + y(45) + y(46) + y(47);
+    
+    dydt(48) = -k_PI3K_recruit * total_p85_RTK * y(48) ...
+               + kMTOR_Feedback * y(56) * y(49);  % PI3K (p110, inactive)
+    dydt(49) = k_PI3K_recruit * total_p85_RTK * y(48) ...
+               - kMTOR_Feedback * y(56) * y(49);  % PI3K_active (recruited to membrane)
     
     % PIP module
     dydt(37) = -(ka1*y(36)*y(37) + ka1*y(14)*y(37));
@@ -665,14 +926,15 @@ function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
     % Integrate ODE system at experimental time points
     [T, Y] = ode45(@(t,y) Mapk_ODE(t, y, p), timeStamps_seconds, y0);
     
-    % Extract model outputs
+    % Extract model outputs (updated indices for new species order)
     m_pEGFR = Y(:,3);
-    m_pCRAF = Y(:,17);
-    m_pMEK = Y(:,21);
-    m_pERK = Y(:,23);
-    m_DUSP = Y(:,24);
-    m_pAKT = Y(:,40);
-    m_RAS_GTP = Y(:,14);
+    m_pCRAF = Y(:,23);  % Updated: pCRAF is now y(23)
+    m_pMEK = Y(:,27);   % Updated: pMEK is now y(27)
+    m_pERK = Y(:,29);   % Updated: pERK is now y(29)
+    m_DUSP = Y(:,31);   % Updated: DUSP is now y(31)
+    m_pAKT = Y(:,53);   % Updated: pAKT is now y(53)
+    m_p4EBP1 = Y(:,59); % Updated: p4EBP1 is now y(59)
+    % m_RAS_GTP = Y(:,20);  % Removed from optimization (KRAS-GTP is now y(20))
     
     % Normalization function
     norm = @(v, mode) v ./ max(eps, (mode=="first")*v(1) + (mode=="last")*v(end) + (mode=="max")*max(v));
@@ -684,10 +946,11 @@ function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
     m_DUSP = norm(m_DUSP, 'max');
     m_pCRAF = norm(m_pCRAF, 'max');
     m_pAKT = norm(m_pAKT, 'max');
-    m_RAS_GTP = norm(m_RAS_GTP, 'last');
+    m_p4EBP1 = norm(m_p4EBP1, 'max');  % p4EBP1
+    % m_RAS_GTP = norm(m_RAS_GTP, 'last');  % Removed from optimization
     
     % Calculate weighted sum of squared residuals
-    w = struct('EGFR', 1, 'MEK', 1, 'ERK', 3, 'DUSP', 3, 'CRAF', 1, 'AKT', 1, 'RAS', 1);
+    w = struct('EGFR', 1, 'MEK', 1, 'ERK', 3, 'DUSP', 3, 'CRAF', 1, 'AKT', 1, 'p4EBP1', 1);  % RAS removed, p4EBP1 added
     
     err = 0;
     err = err + w.EGFR * sum((m_pEGFR - expData_norm.pEGFR(:)).^2);
@@ -696,7 +959,8 @@ function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
     err = err + w.DUSP * sum((m_DUSP - expData_norm.DUSP(:)).^2);
     err = err + w.CRAF * sum((m_pCRAF - expData_norm.pCRAF(:)).^2);
     err = err + w.AKT * sum((m_pAKT - expData_norm.pAKT(:)).^2);
-    err = err + w.RAS * sum((m_RAS_GTP - expData_norm.RAS_GTP(:)).^2);
+    err = err + w.p4EBP1 * sum((m_p4EBP1 - expData_norm.p4ebp1(:)).^2);
+    % err = err + w.RAS * sum((m_RAS_GTP - expData_norm.RAS_GTP(:)).^2);  % Removed from optimization
 end
 
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
