@@ -145,10 +145,15 @@ params.PI3K.k_p85_unbind = 10e-5;      % p85 unbinding from RTKs (min^-1)
 % PI3K recruitment and activation
 params.PI3K.k_PI3K_recruit = 10e-4;    % PI3K recruitment by p85:RTK (min^-1)
 params.PI3K.k_MTOR_feedback = 10e-4;   % mTOR feedback on PI3K (min^-1)
+% PIP2/PIP3 conversion
+params.PI3K.k_PIP2_to_PIP3 = 10e-4;    % PIP2 to PIP3 conversion by active PI3K (min^-1)
+params.PI3K.k_PTEN = 10e-5;             % PTEN-mediated PIP3 to PIP2 dephosphorylation (min^-1)
 params.AKT.k_act = 10e-5;              % AKT activation rate (min^-1)
 params.AKT.k_degrad = 10e-7;           % AKT degradation (min^-1)
 params.mTOR.kb1 = 10e-8;               % mTOR activation parameter
 params.mTOR.k43b1 = 10e-3;             % mTOR activation parameter
+params.mTOR.k_4EBP1 = 10e-5;           % 4EBP1 phosphorylation rate by mTORC (min^-1)
+params.mTOR.k_4EBP1_dephos = 10e-5;   % p4EBP1 dephosphorylation rate (min^-1)
 
 % ----------------------------------------------------------------------------
 % 1.14 General Degradation Parameters
@@ -172,8 +177,9 @@ params_vector = [
     p.PI3K.k_p85_bind_EGFR, p.PI3K.k_p85_bind_Her2, p.PI3K.k_p85_bind_Her3, p.PI3K.k_p85_bind_IGFR, ...  % NEW: p85 binding
     p.PI3K.k_p85_unbind, p.PI3K.k_PI3K_recruit, ...  % NEW: p85 unbinding and PI3K recruitment
     p.PI3K.k_MTOR_feedback, ...
+    p.PI3K.k_PIP2_to_PIP3, p.PI3K.k_PTEN, ...  % NEW: PIP2/PIP3 conversion
     p.AKT.k_act, p.AKT.k_degrad, ...
-    p.mTOR.kb1, p.mTOR.k43b1, ...
+    p.mTOR.kb1, p.mTOR.k43b1, p.mTOR.k_4EBP1, p.mTOR.k_4EBP1_dephos, ...  % 4EBP1 phosphorylation and dephosphorylation
     p.KSR.k_phos, p.KSR.k_dephos, ...
     p.MEK.k_BRAF_route, p.MEK.k_CRAF_route, p.KSR.k_MEK_route, ...
     p.Trametinib.conc, p.Trametinib.Ki_RAF, p.Trametinib.Ki_KSR, p.Trametinib.Hill_n, ...
@@ -182,8 +188,8 @@ params_vector = [
 ];
 
 % Verify parameter vector length
-if length(params_vector) ~= 59
-    error('Parameter vector has %d elements, expected 59!', length(params_vector));
+if length(params_vector) ~= 63
+    error('Parameter vector has %d elements, expected 63!', length(params_vector));
 end
 
 fprintf('Parameters organized by pathway modules. Total: %d parameters.\n\n', length(params_vector));
@@ -349,19 +355,29 @@ ub(38) = 1e-4;
 lb(39) = 1e-6;  % k_PI3K_recruit
 ub(39) = 1e-3;
 
-% Paradoxical activation parameters (parameters 54-59, updated indices)
-lb(54) = 0.0;      % Vemurafenib concentration [0, 1]
-ub(54) = 1.0;
-lb(55) = 1e-7;     % kDimerForm
-ub(55) = 1e-3;
-lb(56) = 1e-6;     % kDimerDissoc
-ub(56) = 1e-3;
-lb(57) = 0.1;      % kParadoxCRAF
-ub(57) = 2.0;
-lb(58) = 0.01;     % IC50_vem
-ub(58) = 0.9;
-lb(59) = 0.5;      % Hill_n_vem
-ub(59) = 3.0;
+% Bounds for mTOR/4EBP1 parameters (parameters 45-48, updated indices)
+lb(45) = 1e-9;  % kb1 - allow smaller values for reverse reaction
+ub(45) = 1e-5;
+lb(46) = 1e-4;  % k43b1 - allow larger values for phosphorylation
+ub(46) = 1e-2;
+lb(47) = 1e-6;  % k4ebp1 - 4EBP1 phosphorylation rate by mTORC
+ub(47) = 1e-3;
+lb(48) = 1e-6;  % k_4EBP1_dephos - p4EBP1 dephosphorylation rate
+ub(48) = 1e-3;
+
+% Paradoxical activation parameters (parameters 58-63, updated indices)
+lb(58) = 0.0;      % Vemurafenib concentration [0, 1]
+ub(58) = 1.0;
+lb(59) = 1e-7;     % kDimerForm
+ub(59) = 1e-3;
+lb(60) = 1e-6;     % kDimerDissoc
+ub(60) = 1e-3;
+lb(61) = 0.1;      % kParadoxCRAF
+ub(61) = 2.0;
+lb(62) = 0.01;     % IC50_vem
+ub(62) = 0.9;
+lb(63) = 0.5;      % Hill_n_vem
+ub(63) = 3.0;
 
 % Optimization options
 opts = optimoptions(@fmincon, ...
@@ -671,7 +687,516 @@ fprintf('Maximum Dimer Concentration: %.6e\n', max(paradox_species.dimer));
 fprintf('Maximum Paradoxical Activation Rate: %.6e\n', max(paradox_activation_rate));
 fprintf('\n');
 
+%% ============================================================================
+% FIGURE 3: NEW ADDITIONS - Her2, Her3, p85, and PI3K Recruitment
+% ============================================================================
+
+fprintf('Generating Figure 3: Her2, Her3, p85, and PI3K Recruitment...\n');
+
+% Extract new species from simulation
+new_species.pEGFR = Y_fine(:,3);           % pEGFR
+new_species.pHer2 = Y_fine(:,6);           % pHer2 (NEW)
+new_species.pHer3 = Y_fine(:,9);           % pHer3 (NEW)
+new_species.pIGFR = Y_fine(:,40);          % pIGFR
+
+% p85 species
+new_species.p85_free = Y_fine(:,43);       % Free p85 (NEW)
+new_species.p85_EGFR = Y_fine(:,44);       % p85:pEGFR complex (NEW)
+new_species.p85_Her2 = Y_fine(:,45);       % p85:pHer2 complex (NEW)
+new_species.p85_Her3 = Y_fine(:,46);       % p85:pHer3 complex (NEW)
+new_species.p85_IGFR = Y_fine(:,47);       % p85:pIGFR complex (NEW)
+
+% Calculate total p85:RTK complexes
+new_species.total_p85_RTK = new_species.p85_EGFR + new_species.p85_Her2 + ...
+                             new_species.p85_Her3 + new_species.p85_IGFR;
+
+% PI3K species
+new_species.PI3K_inactive = Y_fine(:,48);  % PI3K (p110, inactive)
+new_species.PI3K_active = Y_fine(:,49);    % PI3K_active (recruited)
+
+% Normalize for visualization
+new_species.pEGFR_norm = normit(new_species.pEGFR, 'max');
+new_species.pHer2_norm = normit(new_species.pHer2, 'max');
+new_species.pHer3_norm = normit(new_species.pHer3, 'max');
+new_species.pIGFR_norm = normit(new_species.pIGFR, 'max');
+new_species.p85_free_norm = normit(new_species.p85_free, 'max');
+new_species.p85_EGFR_norm = normit(new_species.p85_EGFR, 'max');
+new_species.p85_Her2_norm = normit(new_species.p85_Her2, 'max');
+new_species.p85_Her3_norm = normit(new_species.p85_Her3, 'max');
+new_species.p85_IGFR_norm = normit(new_species.p85_IGFR, 'max');
+new_species.total_p85_RTK_norm = normit(new_species.total_p85_RTK, 'max');
+new_species.PI3K_inactive_norm = normit(new_species.PI3K_inactive, 'max');
+new_species.PI3K_active_norm = normit(new_species.PI3K_active, 'max');
+
+% Create Figure 3
+figure('Name', 'Her2, Her3, p85, and PI3K Recruitment', 'Position', [150, 150, 1600, 1200]);
+
+% Plot 1: RTK Activation (EGFR, Her2, Her3, IGFR)
+subplot(3, 3, 1);
+plot(tFine_hours, new_species.pEGFR_norm, '-', 'Color', [0.2, 0.6, 0.8], ...
+     'LineWidth', 2.5, 'DisplayName', 'pEGFR');
+hold on;
+plot(tFine_hours, new_species.pHer2_norm, '-', 'Color', [0.8, 0.2, 0.2], ...
+     'LineWidth', 2.5, 'DisplayName', 'pHer2');
+plot(tFine_hours, new_species.pHer3_norm, '-', 'Color', [0.2, 0.8, 0.2], ...
+     'LineWidth', 2.5, 'DisplayName', 'pHer3');
+plot(tFine_hours, new_species.pIGFR_norm, '-', 'Color', [0.8, 0.6, 0.2], ...
+     'LineWidth', 2.5, 'DisplayName', 'pIGFR');
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Concentration (normalized)', 'FontSize', 11);
+title('RTK Activation: EGFR, Her2, Her3, IGFR', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+hold off;
+set(gca, 'FontSize', 10);
+
+% Plot 2: Free p85 and Total p85:RTK Complexes
+subplot(3, 3, 2);
+yyaxis left
+plot(tFine_hours, new_species.p85_free_norm, '-', 'Color', [0.5, 0.5, 0.5], ...
+     'LineWidth', 2.5, 'DisplayName', 'Free p85');
+ylabel('Free p85 (normalized)', 'FontSize', 11);
+yyaxis right
+plot(tFine_hours, new_species.total_p85_RTK_norm, '-', 'Color', [0.7, 0.1, 0.7], ...
+     'LineWidth', 2.5, 'DisplayName', 'Total p85:RTK Complexes');
+ylabel('Total p85:RTK Complexes (normalized)', 'FontSize', 11);
+xlabel('Time (hours)', 'FontSize', 11);
+title('p85 Regulatory Subunit Dynamics', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+set(gca, 'FontSize', 10);
+
+% Plot 3: Individual p85:RTK Complexes
+subplot(3, 3, 3);
+plot(tFine_hours, new_species.p85_EGFR_norm, '-', 'Color', [0.2, 0.6, 0.8], ...
+     'LineWidth', 2, 'DisplayName', 'p85:pEGFR');
+hold on;
+plot(tFine_hours, new_species.p85_Her2_norm, '-', 'Color', [0.8, 0.2, 0.2], ...
+     'LineWidth', 2, 'DisplayName', 'p85:pHer2');
+plot(tFine_hours, new_species.p85_Her3_norm, '-', 'Color', [0.2, 0.8, 0.2], ...
+     'LineWidth', 2, 'DisplayName', 'p85:pHer3');
+plot(tFine_hours, new_species.p85_IGFR_norm, '-', 'Color', [0.8, 0.6, 0.2], ...
+     'LineWidth', 2, 'DisplayName', 'p85:pIGFR');
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Complex Concentration (normalized)', 'FontSize', 11);
+title('p85:RTK Complex Formation', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+hold off;
+set(gca, 'FontSize', 10);
+
+% Plot 4: PI3K Recruitment and Activation
+subplot(3, 3, 4);
+yyaxis left
+plot(tFine_hours, new_species.PI3K_inactive_norm, '--', 'Color', [0.6, 0.6, 0.6], ...
+     'LineWidth', 2, 'DisplayName', 'PI3K (inactive)');
+hold on;
+plot(tFine_hours, new_species.PI3K_active_norm, '-', 'Color', [0.2, 0.8, 0.2], ...
+     'LineWidth', 2.5, 'DisplayName', 'PI3K (active, recruited)');
+ylabel('PI3K Concentration (normalized)', 'FontSize', 11);
+yyaxis right
+plot(tFine_hours, new_species.total_p85_RTK_norm, '-', 'Color', [0.7, 0.1, 0.7], ...
+     'LineWidth', 2, 'DisplayName', 'Total p85:RTK (recruiter)');
+ylabel('Total p85:RTK Complexes (normalized)', 'FontSize', 11);
+xlabel('Time (hours)', 'FontSize', 11);
+title('PI3K Recruitment by p85:RTK Complexes', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+hold off;
+set(gca, 'FontSize', 10);
+
+% Plot 5: p85 Binding Rates (calculated from parameters)
+subplot(3, 3, 5);
+k_p85_bind_EGFR = optimizedParams(34);
+k_p85_bind_Her2 = optimizedParams(35);
+k_p85_bind_Her3 = optimizedParams(36);
+k_p85_bind_IGFR = optimizedParams(37);
+k_p85_unbind = optimizedParams(38);
+
+% Calculate binding rates
+binding_rate_EGFR = k_p85_bind_EGFR * new_species.pEGFR .* new_species.p85_free;
+binding_rate_Her2 = k_p85_bind_Her2 * new_species.pHer2 .* new_species.p85_free;
+binding_rate_Her3 = k_p85_bind_Her3 * new_species.pHer3 .* new_species.p85_free;
+binding_rate_IGFR = k_p85_bind_IGFR * new_species.pIGFR .* new_species.p85_free;
+
+% Normalize rates
+max_rate = max([max(binding_rate_EGFR), max(binding_rate_Her2), ...
+                max(binding_rate_Her3), max(binding_rate_IGFR)]) + eps;
+binding_rate_EGFR_norm = binding_rate_EGFR / max_rate;
+binding_rate_Her2_norm = binding_rate_Her2 / max_rate;
+binding_rate_Her3_norm = binding_rate_Her3 / max_rate;
+binding_rate_IGFR_norm = binding_rate_IGFR / max_rate;
+
+plot(tFine_hours, binding_rate_EGFR_norm, '-', 'Color', [0.2, 0.6, 0.8], ...
+     'LineWidth', 2, 'DisplayName', 'p85:pEGFR binding');
+hold on;
+plot(tFine_hours, binding_rate_Her2_norm, '-', 'Color', [0.8, 0.2, 0.2], ...
+     'LineWidth', 2, 'DisplayName', 'p85:pHer2 binding');
+plot(tFine_hours, binding_rate_Her3_norm, '-', 'Color', [0.2, 0.8, 0.2], ...
+     'LineWidth', 2, 'DisplayName', 'p85:pHer3 binding');
+plot(tFine_hours, binding_rate_IGFR_norm, '-', 'Color', [0.8, 0.6, 0.2], ...
+     'LineWidth', 2, 'DisplayName', 'p85:pIGFR binding');
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Binding Rate (normalized)', 'FontSize', 11);
+title('p85 Binding Rates to RTKs', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+hold off;
+set(gca, 'FontSize', 10);
+
+% Plot 6: PI3K Recruitment Rate
+subplot(3, 3, 6);
+k_PI3K_recruit = optimizedParams(39);
+PI3K_recruitment_rate = k_PI3K_recruit * new_species.total_p85_RTK .* new_species.PI3K_inactive;
+PI3K_recruitment_rate_norm = PI3K_recruitment_rate ./ (max(PI3K_recruitment_rate) + eps);
+
+plot(tFine_hours, PI3K_recruitment_rate_norm, '-', 'Color', [0.2, 0.8, 0.2], ...
+     'LineWidth', 2.5, 'DisplayName', 'PI3K Recruitment Rate');
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Recruitment Rate (normalized)', 'FontSize', 11);
+title('PI3K Recruitment Rate by p85:RTK', 'FontSize', 13, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+set(gca, 'FontSize', 10);
+
+% Plot 7: p85 Distribution (pie chart at final time point)
+subplot(3, 3, 7);
+final_idx = length(new_species.p85_free);
+p85_distribution = [
+    new_species.p85_free(final_idx);
+    new_species.p85_EGFR(final_idx);
+    new_species.p85_Her2(final_idx);
+    new_species.p85_Her3(final_idx);
+    new_species.p85_IGFR(final_idx)
+];
+p85_labels = {'Free p85', 'p85:pEGFR', 'p85:pHer2', 'p85:pHer3', 'p85:pIGFR'};
+p85_colors = [0.5 0.5 0.5; 0.2 0.6 0.8; 0.8 0.2 0.2; 0.2 0.8 0.2; 0.8 0.6 0.2];
+pie(p85_distribution, p85_labels);
+colormap(gca, p85_colors);
+title('p85 Distribution at Final Time Point', 'FontSize', 13, 'FontWeight', 'bold');
+set(gca, 'FontSize', 10);
+
+% Plot 8: RTK Contribution to PI3K Recruitment
+subplot(3, 3, 8);
+% Calculate contribution of each RTK to total p85:RTK
+contribution_EGFR = new_species.p85_EGFR ./ (new_species.total_p85_RTK + eps);
+contribution_Her2 = new_species.p85_Her2 ./ (new_species.total_p85_RTK + eps);
+contribution_Her3 = new_species.p85_Her3 ./ (new_species.total_p85_RTK + eps);
+contribution_IGFR = new_species.p85_IGFR ./ (new_species.total_p85_RTK + eps);
+
+area(tFine_hours, [contribution_EGFR, contribution_Her2, contribution_Her3, contribution_IGFR]);
+colormap(gca, [0.2 0.6 0.8; 0.8 0.2 0.2; 0.2 0.8 0.2; 0.8 0.6 0.2]);
+xlabel('Time (hours)', 'FontSize', 11);
+ylabel('Relative Contribution', 'FontSize', 11);
+title('RTK Contribution to Total p85:RTK Complexes', 'FontSize', 13, 'FontWeight', 'bold');
+legend('p85:pEGFR', 'p85:pHer2', 'p85:pHer3', 'p85:pIGFR', 'Location', 'best', 'FontSize', 10);
+grid on;
+set(gca, 'FontSize', 10);
+
+% Plot 9: Summary - Key Metrics
+subplot(3, 3, 9);
+% Calculate key metrics
+max_p85_RTK = max(new_species.total_p85_RTK);
+max_PI3K_active = max(new_species.PI3K_active);
+avg_p85_bound = mean(new_species.total_p85_RTK);
+avg_PI3K_active = mean(new_species.PI3K_active);
+
+metrics_text = {
+    sprintf('Max Total p85:RTK: %.4f', max_p85_RTK);
+    sprintf('Max PI3K Active: %.4f', max_PI3K_active);
+    sprintf('Avg p85:RTK: %.4f', avg_p85_bound);
+    sprintf('Avg PI3K Active: %.4f', avg_PI3K_active);
+    sprintf('Max p85:pEGFR: %.4f', max(new_species.p85_EGFR));
+    sprintf('Max p85:pHer2: %.4f', max(new_species.p85_Her2));
+    sprintf('Max p85:pHer3: %.4f', max(new_species.p85_Her3));
+    sprintf('Max p85:pIGFR: %.4f', max(new_species.p85_IGFR));
+};
+
+text(0.1, 0.5, metrics_text, 'FontSize', 11, 'VerticalAlignment', 'middle');
+axis off;
+title('Key Metrics Summary', 'FontSize', 13, 'FontWeight', 'bold');
+
+sgtitle('Her2, Her3, p85 Recruitment, and PI3K Activation', 'FontSize', 16, 'FontWeight', 'bold');
+
+% Display summary statistics
+fprintf('═══════════════════════════════════════════════════════════════════════════\n');
+fprintf('   NEW ADDITIONS SUMMARY\n');
+fprintf('═══════════════════════════════════════════════════════════════════════════\n');
+fprintf('Maximum RTK Activation:\n');
+fprintf('  pEGFR: %.4f\n', max(new_species.pEGFR));
+fprintf('  pHer2: %.4f\n', max(new_species.pHer2));
+fprintf('  pHer3: %.4f\n', max(new_species.pHer3));
+fprintf('  pIGFR: %.4f\n', max(new_species.pIGFR));
+fprintf('\n');
+fprintf('p85 Dynamics:\n');
+fprintf('  Maximum Free p85: %.4f\n', max(new_species.p85_free));
+fprintf('  Maximum Total p85:RTK Complexes: %.4f\n', max_p85_RTK);
+fprintf('  Average p85:RTK Complexes: %.4f\n', avg_p85_bound);
+fprintf('\n');
+fprintf('PI3K Recruitment:\n');
+fprintf('  Maximum PI3K Active: %.4f\n', max_PI3K_active);
+fprintf('  Average PI3K Active: %.4f\n', avg_PI3K_active);
+fprintf('  Maximum PI3K Recruitment Rate: %.6e\n', max(PI3K_recruitment_rate));
+fprintf('\n');
+
 fprintf('Visualization complete.\n\n');
+
+%% ============================================================================
+% FIGURE 4: ALL PI3K PATHWAY SPECIES
+% ============================================================================
+
+fprintf('Generating Figure 4: All PI3K Pathway Species...\n');
+
+% Extract all PI3K pathway species from simulation
+pi3k_species.IGFR = Y_fine(:,38);          % IGFR
+pi3k_species.IGFR_ligand = Y_fine(:,39);  % IGFR:ligand
+pi3k_species.pIGFR = Y_fine(:,40);        % pIGFR
+pi3k_species.IRS = Y_fine(:,41);          % IRS
+pi3k_species.pIRS = Y_fine(:,42);         % pIRS
+pi3k_species.p85_free = Y_fine(:,43);     % Free p85
+pi3k_species.p85_EGFR = Y_fine(:,44);     % p85:pEGFR complex
+pi3k_species.p85_Her2 = Y_fine(:,45);     % p85:pHer2 complex
+pi3k_species.p85_Her3 = Y_fine(:,46);     % p85:pHer3 complex
+pi3k_species.p85_IGFR = Y_fine(:,47);     % p85:pIGFR complex
+pi3k_species.PI3K_inactive = Y_fine(:,48); % PI3K (p110, inactive)
+pi3k_species.PI3K_active = Y_fine(:,49);   % PI3K_active
+pi3k_species.PIP2 = Y_fine(:,50);         % PIP2
+pi3k_species.PIP3 = Y_fine(:,51);         % PIP3
+pi3k_species.AKT = Y_fine(:,52);          % AKT
+pi3k_species.pAKT = Y_fine(:,53);         % pAKT
+pi3k_species.FOXO = Y_fine(:,54);         % FOXO
+pi3k_species.mTORC = Y_fine(:,55);        % mTORC
+pi3k_species.mTORC_active = Y_fine(:,56); % mTORC_active
+pi3k_species.frebp1 = Y_fine(:,57);       % 4EBP1
+pi3k_species.frebp1_inter = Y_fine(:,58);  % 4EBP1 intermediate
+pi3k_species.p4EBP1 = Y_fine(:,59);       % p4EBP1
+
+% Calculate total p85:RTK complexes
+pi3k_species.total_p85_RTK = pi3k_species.p85_EGFR + pi3k_species.p85_Her2 + ...
+                             pi3k_species.p85_Her3 + pi3k_species.p85_IGFR;
+
+% Create figure with subplots
+figure('Name', 'All PI3K Pathway Species', 'Position', [200, 200, 1800, 1400]);
+
+% Plot 1: IGFR Module
+subplot(4, 4, 1);
+plot(tFine_hours, pi3k_species.IGFR, '-', 'Color', [0.2, 0.6, 0.8], 'LineWidth', 2, 'DisplayName', 'IGFR');
+hold on;
+plot(tFine_hours, pi3k_species.IGFR_ligand, '-', 'Color', [0.4, 0.7, 0.9], 'LineWidth', 2, 'DisplayName', 'IGFR:ligand');
+plot(tFine_hours, pi3k_species.pIGFR, '-', 'Color', [0.8, 0.6, 0.2], 'LineWidth', 2.5, 'DisplayName', 'pIGFR');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('IGFR Module', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 2: IRS Module
+subplot(4, 4, 2);
+plot(tFine_hours, pi3k_species.IRS, '-', 'Color', [0.3, 0.5, 0.7], 'LineWidth', 2, 'DisplayName', 'IRS');
+hold on;
+plot(tFine_hours, pi3k_species.pIRS, '-', 'Color', [0.7, 0.3, 0.5], 'LineWidth', 2.5, 'DisplayName', 'pIRS');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('IRS Module', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 3: p85 Regulatory Subunit
+subplot(4, 4, 3);
+plot(tFine_hours, pi3k_species.p85_free, '-', 'Color', [0.5, 0.5, 0.5], 'LineWidth', 2.5, 'DisplayName', 'Free p85');
+hold on;
+plot(tFine_hours, pi3k_species.total_p85_RTK, '-', 'Color', [0.7, 0.1, 0.7], 'LineWidth', 2.5, 'DisplayName', 'Total p85:RTK');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('p85 Regulatory Subunit', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 4: p85:RTK Complexes
+subplot(4, 4, 4);
+plot(tFine_hours, pi3k_species.p85_EGFR, '-', 'Color', [0.2, 0.6, 0.8], 'LineWidth', 2, 'DisplayName', 'p85:pEGFR');
+hold on;
+plot(tFine_hours, pi3k_species.p85_Her2, '-', 'Color', [0.8, 0.2, 0.2], 'LineWidth', 2, 'DisplayName', 'p85:pHer2');
+plot(tFine_hours, pi3k_species.p85_Her3, '-', 'Color', [0.2, 0.8, 0.2], 'LineWidth', 2, 'DisplayName', 'p85:pHer3');
+plot(tFine_hours, pi3k_species.p85_IGFR, '-', 'Color', [0.8, 0.6, 0.2], 'LineWidth', 2, 'DisplayName', 'p85:pIGFR');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('p85:RTK Complexes', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 5: PI3K
+subplot(4, 4, 5);
+plot(tFine_hours, pi3k_species.PI3K_inactive, '--', 'Color', [0.6, 0.6, 0.6], 'LineWidth', 2, 'DisplayName', 'PI3K (inactive)');
+hold on;
+plot(tFine_hours, pi3k_species.PI3K_active, '-', 'Color', [0.2, 0.8, 0.2], 'LineWidth', 2.5, 'DisplayName', 'PI3K (active)');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('PI3K Activation', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 6: PIP2/PIP3
+subplot(4, 4, 6);
+plot(tFine_hours, pi3k_species.PIP2, '-', 'Color', [0.4, 0.6, 0.9], 'LineWidth', 2, 'DisplayName', 'PIP2');
+hold on;
+plot(tFine_hours, pi3k_species.PIP3, '-', 'Color', [0.9, 0.4, 0.6], 'LineWidth', 2.5, 'DisplayName', 'PIP3');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('Phosphoinositides (PIP2/PIP3)', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 7: AKT Module
+subplot(4, 4, 7);
+plot(tFine_hours, pi3k_species.AKT, '-', 'Color', [0.3, 0.5, 0.7], 'LineWidth', 2, 'DisplayName', 'AKT');
+hold on;
+plot(tFine_hours, pi3k_species.pAKT, '-', 'Color', [0.7, 0.2, 0.3], 'LineWidth', 2.5, 'DisplayName', 'pAKT');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('AKT Module', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 8: FOXO
+subplot(4, 4, 8);
+plot(tFine_hours, pi3k_species.FOXO, '-', 'Color', [0.6, 0.3, 0.8], 'LineWidth', 2.5, 'DisplayName', 'FOXO');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('FOXO Transcription Factor', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 9: mTORC Module
+subplot(4, 4, 9);
+plot(tFine_hours, pi3k_species.mTORC, '-', 'Color', [0.4, 0.7, 0.4], 'LineWidth', 2, 'DisplayName', 'mTORC');
+hold on;
+plot(tFine_hours, pi3k_species.mTORC_active, '-', 'Color', [0.2, 0.9, 0.2], 'LineWidth', 2.5, 'DisplayName', 'mTORC (active)');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('mTORC Module', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 10: 4EBP1 Module
+subplot(4, 4, 10);
+plot(tFine_hours, pi3k_species.frebp1, '-', 'Color', [0.5, 0.5, 0.5], 'LineWidth', 2, 'DisplayName', '4EBP1');
+hold on;
+plot(tFine_hours, pi3k_species.frebp1_inter, '--', 'Color', [0.7, 0.7, 0.7], 'LineWidth', 2, 'DisplayName', '4EBP1 (intermediate)');
+plot(tFine_hours, pi3k_species.p4EBP1, '-', 'Color', [0.9, 0.5, 0.1], 'LineWidth', 2.5, 'DisplayName', 'p4EBP1');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('4EBP1 Module', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 11: RTK Activation Summary (for context)
+subplot(4, 4, 11);
+pEGFR = Y_fine(:,3);
+pHer2 = Y_fine(:,6);
+pHer3 = Y_fine(:,9);
+plot(tFine_hours, pEGFR, '-', 'Color', [0.2, 0.6, 0.8], 'LineWidth', 2, 'DisplayName', 'pEGFR');
+hold on;
+plot(tFine_hours, pHer2, '-', 'Color', [0.8, 0.2, 0.2], 'LineWidth', 2, 'DisplayName', 'pHer2');
+plot(tFine_hours, pHer3, '-', 'Color', [0.2, 0.8, 0.2], 'LineWidth', 2, 'DisplayName', 'pHer3');
+plot(tFine_hours, pi3k_species.pIGFR, '-', 'Color', [0.8, 0.6, 0.2], 'LineWidth', 2, 'DisplayName', 'pIGFR');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Concentration', 'FontSize', 10);
+title('RTK Activation (Context)', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 12: PI3K Pathway Flow (Normalized)
+subplot(4, 4, 12);
+% Normalize for visualization
+p85_total_norm = normit(pi3k_species.total_p85_RTK, 'max');
+PI3K_active_norm = normit(pi3k_species.PI3K_active, 'max');
+PIP3_norm = normit(pi3k_species.PIP3, 'max');
+pAKT_norm = normit(pi3k_species.pAKT, 'max');
+mTORC_active_norm = normit(pi3k_species.mTORC_active, 'max');
+p4EBP1_norm = normit(pi3k_species.p4EBP1, 'max');
+
+plot(tFine_hours, p85_total_norm, '-', 'Color', [0.7, 0.1, 0.7], 'LineWidth', 2, 'DisplayName', 'p85:RTK');
+hold on;
+plot(tFine_hours, PI3K_active_norm, '-', 'Color', [0.2, 0.8, 0.2], 'LineWidth', 2, 'DisplayName', 'PI3K*');
+plot(tFine_hours, PIP3_norm, '-', 'Color', [0.9, 0.4, 0.6], 'LineWidth', 2, 'DisplayName', 'PIP3');
+plot(tFine_hours, pAKT_norm, '-', 'Color', [0.7, 0.2, 0.3], 'LineWidth', 2, 'DisplayName', 'pAKT');
+plot(tFine_hours, mTORC_active_norm, '-', 'Color', [0.2, 0.9, 0.2], 'LineWidth', 2, 'DisplayName', 'mTORC*');
+plot(tFine_hours, p4EBP1_norm, '-', 'Color', [0.9, 0.5, 0.1], 'LineWidth', 2, 'DisplayName', 'p4EBP1');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Normalized Concentration', 'FontSize', 10);
+title('PI3K Pathway Flow (Normalized)', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 7);
+grid on;
+
+% Plot 13: p85 Distribution
+subplot(4, 4, 13);
+p85_total_all = pi3k_species.p85_free + pi3k_species.total_p85_RTK;
+p85_free_pct = (pi3k_species.p85_free ./ (p85_total_all + eps)) * 100;
+p85_bound_pct = (pi3k_species.total_p85_RTK ./ (p85_total_all + eps)) * 100;
+
+plot(tFine_hours, p85_free_pct, '-', 'Color', [0.5, 0.5, 0.5], 'LineWidth', 2.5, 'DisplayName', 'Free p85 (%)');
+hold on;
+plot(tFine_hours, p85_bound_pct, '-', 'Color', [0.7, 0.1, 0.7], 'LineWidth', 2.5, 'DisplayName', 'Bound p85 (%)');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Percentage (%)', 'FontSize', 10);
+title('p85 Distribution', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+ylim([0, 100]);
+grid on;
+
+% Plot 14: PIP2/PIP3 Ratio
+subplot(4, 4, 14);
+PIP_ratio = pi3k_species.PIP3 ./ (pi3k_species.PIP2 + eps);
+plot(tFine_hours, PIP_ratio, '-', 'Color', [0.6, 0.3, 0.8], 'LineWidth', 2.5, 'DisplayName', 'PIP3/PIP2 Ratio');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Ratio', 'FontSize', 10);
+title('PIP3/PIP2 Ratio', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 15: AKT/mTORC/4EBP1 Cascade (Normalized)
+subplot(4, 4, 15);
+plot(tFine_hours, pAKT_norm, '-', 'Color', [0.7, 0.2, 0.3], 'LineWidth', 2.5, 'DisplayName', 'pAKT');
+hold on;
+plot(tFine_hours, mTORC_active_norm, '-', 'Color', [0.2, 0.9, 0.2], 'LineWidth', 2.5, 'DisplayName', 'mTORC*');
+plot(tFine_hours, p4EBP1_norm, '-', 'Color', [0.9, 0.5, 0.1], 'LineWidth', 2.5, 'DisplayName', 'p4EBP1');
+xlabel('Time (hours)', 'FontSize', 10);
+ylabel('Normalized Concentration', 'FontSize', 10);
+title('AKT → mTORC → 4EBP1 Cascade', 'FontSize', 12, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 8);
+grid on;
+
+% Plot 16: Summary Statistics
+subplot(4, 4, 16);
+axis off;
+[~, idx_p85] = max(pi3k_species.total_p85_RTK);
+[~, idx_PI3K] = max(pi3k_species.PI3K_active);
+[~, idx_pAKT] = max(pi3k_species.pAKT);
+[~, idx_p4EBP1] = max(pi3k_species.p4EBP1);
+stats_text = {
+    sprintf('PI3K Pathway Summary:');
+    sprintf('');
+    sprintf('Max p85:RTK: %.4f', max(pi3k_species.total_p85_RTK));
+    sprintf('Max PI3K*: %.4f', max(pi3k_species.PI3K_active));
+    sprintf('Max PIP3: %.4f', max(pi3k_species.PIP3));
+    sprintf('Max pAKT: %.4f', max(pi3k_species.pAKT));
+    sprintf('Max mTORC*: %.4f', max(pi3k_species.mTORC_active));
+    sprintf('Max p4EBP1: %.4f', max(pi3k_species.p4EBP1));
+    sprintf('');
+    sprintf('Time to Peak:');
+    sprintf('  p85:RTK: %.2f h', tFine_hours(idx_p85));
+    sprintf('  PI3K*: %.2f h', tFine_hours(idx_PI3K));
+    sprintf('  pAKT: %.2f h', tFine_hours(idx_pAKT));
+    sprintf('  p4EBP1: %.2f h', tFine_hours(idx_p4EBP1));
+};
+
+text(0.1, 0.5, stats_text, 'FontSize', 10, 'VerticalAlignment', 'middle');
+title('PI3K Pathway Summary', 'FontSize', 12, 'FontWeight', 'bold');
+
+sgtitle('All PI3K Pathway Species', 'FontSize', 16, 'FontWeight', 'bold');
+
+fprintf('Figure 4: All PI3K Pathway Species generated successfully.\n\n');
 
 %% ============================================================================
 % SECTION 8: ODE FUNCTION
@@ -731,13 +1256,14 @@ function dydt = Mapk_ODE(t, y, p)
     k_p85_bind_EGFR = p(34); k_p85_bind_Her2 = p(35); k_p85_bind_Her3 = p(36); k_p85_bind_IGFR = p(37);  % NEW: p85 binding (updated indices)
     k_p85_unbind = p(38); k_PI3K_recruit = p(39);  % NEW: p85 unbinding and PI3K recruitment (updated indices)
     kMTOR_Feedback = p(40);
-    kAkt = p(41); kdegradAKT = p(42);
-    kb1 = p(43); k43b1 = p(44);
-    kKSRphos = p(45); kKSRdephos = p(46);
-    kMekByBraf = p(47); kMekByCraf = p(48); kMekByKSR = p(49);
-    Tram = p(50); K_tram_RAF = p(51); K_tram_KSR = p(52); n_tram = p(53);
-    Vemurafenib = p(54); kDimerForm = p(55); kDimerDissoc = p(56);
-    kParadoxCRAF = p(57); IC50_vem = p(58); Hill_n_vem = p(59);
+    k_PIP2_to_PIP3 = p(41); k_PTEN = p(42);  % NEW: PIP2/PIP3 conversion parameters
+    kAkt = p(43); kdegradAKT = p(44);
+    kb1 = p(45); k43b1 = p(46); k4ebp1 = p(47); k_4EBP1_dephos = p(48);  % 4EBP1 parameters
+    kKSRphos = p(49); kKSRdephos = p(50);
+    kMekByBraf = p(51); kMekByCraf = p(52); kMekByKSR = p(53);
+    Tram = p(54); K_tram_RAF = p(55); K_tram_KSR = p(56); n_tram = p(57);
+    Vemurafenib = p(58); kDimerForm = p(59); kDimerDissoc = p(60);
+    kParadoxCRAF = p(61); IC50_vem = p(62); Hill_n_vem = p(63);
     
     % Initialize derivatives
     dydt = zeros(62, 1);
@@ -878,33 +1404,46 @@ function dydt = Mapk_ODE(t, y, p)
     dydt(49) = k_PI3K_recruit * total_p85_RTK * y(48) ...
                - kMTOR_Feedback * y(56) * y(49);  % PI3K_active (recruited to membrane)
     
-    % PIP module
-    dydt(37) = -(ka1*y(36)*y(37) + ka1*y(14)*y(37));
-    dydt(38) = ka1*y(36)*y(37) + ka1*y(14)*y(37) - kdegrad*y(38);
+    % PIP module - PIP2 (y(50)) and PIP3 (y(51))
+    % PIP2 → PIP3 conversion by active PI3K
+    % PIP3 → PIP2 dephosphorylation by PTEN
+    dydt(50) = -k_PIP2_to_PIP3 * y(49) * y(50) ...  % PIP2 consumed by active PI3K
+               + k_PTEN * y(51);                     % PIP3 dephosphorylated back to PIP2 by PTEN
+    dydt(51) = k_PIP2_to_PIP3 * y(49) * y(50) ...   % PIP2 converted to PIP3 by active PI3K
+               - k_PTEN * y(51);                     % PIP3 dephosphorylated by PTEN
     
-    % AKT module
-    dydt(39) = -kAkt*y(38)*y(39);
-    dydt(40) = kAkt*y(38)*y(39) - kdegradAKT*y(40);
+    % AKT module - AKT (y(52)) and pAKT (y(53))
+    % AKT activation by PIP3 (simplified: PIP3 recruits and activates AKT)
+    % In reality: PIP3 recruits AKT to membrane, PDK1 phosphorylates Thr308, mTORC2 phosphorylates Ser473
+    dydt(52) = -kAkt * y(51) * y(52) ...      % AKT consumed by PIP3-mediated activation
+               + kdegradAKT * y(53);           % pAKT dephosphorylated back to AKT
+    dydt(53) = kAkt * y(51) * y(52) ...       % AKT activated by PIP3
+               - kdegradAKT * y(53);           % pAKT dephosphorylated/degraded
     
-    % FOXO module
-    dydt(41) = (1-y(40))*ka1/(1 + (y(41)/15e-5));
+    % FOXO module - FOXO (y(54))
+    % FOXO is inactivated by pAKT (simplified model)
+    dydt(54) = (1 - y(53)) * ka1 / (1 + (y(54) / 15e-5));  % FOXO dynamics (inhibited by pAKT)
     
-    % mTORC module
-    dydt(42) = -ka1*y(40)*y(42) + kdegrad*y(43);
-    dydt(43) = ka1*y(40)*y(42) - kdegrad*y(43);
+    % mTORC module - mTORC (y(55)) and mTORC_active (y(56))
+    % mTORC activation by pAKT
+    dydt(55) = -ka1 * y(53) * y(55) + kdegrad * y(56);  % mTORC (inactive)
+    dydt(56) = ka1 * y(53) * y(55) - kdegrad * y(56);   % mTORC_active (activated by pAKT)
     
-    % 4EBP1 module
-    dydt(44) = -ka1*y(43)*y(44) + kb1*y(44);
-    dydt(45) = ka1*y(43)*y(44) - kb1*y(44) - k43b1*y(45);
-    dydt(46) = k43b1*y(45);
+    % 4EBP1 module - 4EBP1 (y(57)), intermediate (y(58)), p4EBP1 (y(59))
+    % 4EBP1 phosphorylation by active mTORC
+    dydt(57) = -k4ebp1 * y(56) * y(57) + kb1 * y(58) + k_4EBP1_dephos * y(59);  % 4EBP1 (unphosphorylated) - receives dephosphorylated p4EBP1
+    dydt(58) = k4ebp1 * y(56) * y(57) - kb1 * y(58) - k43b1 * y(58);  % 4EBP1 intermediate
+    dydt(59) = k43b1 * y(58) - k_4EBP1_dephos * y(59);  % p4EBP1 (fully phosphorylated) - can be dephosphorylated
     
     % ========================================================================
     % MODULE 11: KSR SCAFFOLD
     % ========================================================================
-    dydt(47) = -kKSRphos*(y(17)+y(19))*y(47) + kKSRdephos*y(48);
-    dydt(48) = kKSRphos*(y(17)+y(19))*y(47) - kKSRdephos*y(48);
+    % KSR (y(60)) and pKSR (y(61))
+    % KSR phosphorylation by RAS-GTP (HRAS-GTP: y(16), NRAS-GTP: y(18), KRAS-GTP: y(21))
+    dydt(60) = -kKSRphos * (y(16) + y(18) + y(21)) * y(60) + kKSRdephos * y(61);  % KSR
+    dydt(61) = kKSRphos * (y(16) + y(18) + y(21)) * y(60) - kKSRdephos * y(61);   % pKSR
     
-    % Note: dydt(49) for BRAF-WT:CRAF dimer is defined above in RAF module
+    % Note: dydt(62) for BRAF-WT:CRAF dimer is defined above in RAF module (line ~1316)
 end
 
 %% ============================================================================
