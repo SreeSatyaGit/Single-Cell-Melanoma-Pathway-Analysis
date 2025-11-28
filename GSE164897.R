@@ -1,9 +1,10 @@
 library(data.table)
 library(Matrix)
 library(Seurat)
-
+library(SeuratObject)
+library(org.Hs.eg.db)
 # Point to your directory
-base_dir <- "/projects/vanaja_lab/satya/SCTMR"  # <-- change this
+base_dir <- "/projects/vanaja_lab/satya/SCTMR"  
 
 
 files <- list.files(
@@ -49,10 +50,6 @@ names(seurat_list) <- basename(files)
 
 GSE164897 <- Reduce(function(x, y) merge(x = x, y = y), seurat_list)
 
-# ============================================================================
-# DOWNSAMPLING: Make all treatment groups equal size (match GSM5022598)
-# This must be done BEFORE analysis to preserve all reductions
-# ============================================================================
 
 # Treatment mapping
 map <- c(
@@ -210,8 +207,7 @@ GSE164897$treatment <- factor(
   levels = c("untreated", "Vemurafenib", "vem_cob", "vem_tram")
 )
 
-# Split object back into layers for integration (required for IntegrateLayers)
-# Split by orig.ident to create separate objects, then merge to create layers
+
 print("Splitting object into layers for integration...")
 GSE164897_split <- SplitObject(GSE164897, split.by = "orig.ident")
 print(paste("Split into", length(GSE164897_split), "objects"))
@@ -235,20 +231,12 @@ if (length(unique_counts) == 1) {
   print("Actual sizes:", paste(paste(names(cell_counts_after), cell_counts_after, sep = "="), collapse = ", "))
 }
 
-# ============================================================================
-# run standard anlaysis workflow
-# Note: In Seurat v5, operations run on all layers by default
+
 GSE164897 <- NormalizeData(GSE164897)
 GSE164897 <- FindVariableFeatures(GSE164897)
 GSE164897 <- ScaleData(GSE164897)
-
-# Run PCA - check if layers exist first
-layer_check <- Layers(GSE164897)
-if (length(layer_check) > 0) {
-  print(paste("Running PCA on object with", length(layer_check), "layers"))
-}
 GSE164897 <- RunPCA(GSE164897)
-print("PCA completed")
+
 
 
 GSE164897 <- FindNeighbors(GSE164897, dims = 1:30, reduction = "pca")
@@ -258,78 +246,14 @@ GSE164897 <- FindClusters(GSE164897, resolution = 2, cluster.name = "unintegrate
 GSE164897 <- RunUMAP(GSE164897, dims = 1:30, reduction = "pca", reduction.name = "umap.unintegrated")
 DimPlot(GSE164897, reduction = "umap.unintegrated", group.by = c("orig.ident", "seurat_clusters"))
 
-# Check object structure before integration
-print("=== Checking object structure before integration ===")
-print(paste("Class:", class(GSE164897)))
-print(paste("Assays:", paste(names(GSE164897@assays), collapse = ", ")))
-print(paste("Reductions:", paste(names(GSE164897@reductions), collapse = ", ")))
-print(paste("Layers:", paste(Layers(GSE164897), collapse = ", ")))
 
-# Verify PCA exists
-if (!"pca" %in% names(GSE164897@reductions)) {
-  stop("ERROR: PCA reduction not found. Cannot proceed with integration.")
-}
-
-# Check if layers exist
-layer_names <- Layers(GSE164897)
-if (length(layer_names) == 0) {
-  print("WARNING: No layers found. Object may need to be split again.")
-  # Try splitting and merging again
-  GSE164897_split <- SplitObject(GSE164897, split.by = "orig.ident")
-  if (length(GSE164897_split) > 1) {
-    GSE164897 <- merge(GSE164897_split[[1]], y = GSE164897_split[-1])
-    print("Re-split and merged to create layers")
-    layer_names <- Layers(GSE164897)
-    print(paste("Layers after re-merge:", paste(layer_names, collapse = ", ")))
-  }
-}
-
-if (length(layer_names) == 0) {
-  stop("ERROR: Cannot create layers. Integration requires layered structure.")
-}
-
-# Verify all layers are accessible
-print("Verifying layer accessibility...")
-for (layer in layer_names) {
-  tryCatch({
-    test_data <- LayerData(GSE164897, layer = layer, assay = "RNA")
-    print(paste("  Layer", layer, "is accessible, dimensions:", paste(dim(test_data), collapse = "x")))
-  }, error = function(e) {
-    print(paste("  WARNING: Layer", layer, "is not accessible:", e$message))
-  })
-}
-
-# Try integration with error handling
-tryCatch({
-  GSE164897 <- IntegrateLayers(object = GSE164897, method = CCAIntegration, orig.reduction = "pca", new.reduction = "integrated.cca",
+GSE164897 <- IntegrateLayers(object = GSE164897, method = CCAIntegration, orig.reduction = "pca", new.reduction = "integrated.cca",
                                verbose = FALSE)
-  print("Integration completed successfully")
-}, error = function(e) {
-  print(paste("Integration failed:", e$message))
-  print("Attempting to fix object structure...")
-  
-  # Try to ensure proper structure
-  if (inherits(GSE164897, "Seurat")) {
-    # Check if we can access assays
-    if (length(GSE164897@assays) == 0) {
-      stop("ERROR: Object has no assays. Cannot integrate.")
-    }
-    
-    # Try integration again with explicit assay specification
-    tryCatch({
-      GSE164897 <<- IntegrateLayers(object = GSE164897, method = CCAIntegration, 
+GSE164897 <- IntegrateLayers(object = GSE164897, method = CCAIntegration, 
                                     orig.reduction = "pca", new.reduction = "integrated.cca",
                                     assay = "RNA",
                                     verbose = FALSE)
-      print("Integration succeeded with explicit assay specification")
-    }, error = function(e2) {
-      stop(paste("Integration failed even with explicit assay:", e2$message,
-                 "\nOriginal error:", e$message))
-    })
-  } else {
-    stop(paste("ERROR: Object is not a Seurat object. Class:", class(GSE164897)))
-  }
-})
+  
 
 # re-join layers after integration
 GSE164897[["RNA"]] <- JoinLayers(GSE164897[["RNA"]])
@@ -341,3 +265,8 @@ GSE164897 <- RunUMAP(GSE164897, dims = 1:30, reduction = "integrated.cca")
 
 # Visualization (treatment column already added during downsampling)
 DimPlot(GSE164897, reduction = "umap", group.by = c("seurat_clusters","treatment"))
+
+
+
+
+
