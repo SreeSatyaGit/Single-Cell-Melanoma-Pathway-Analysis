@@ -1,3 +1,10 @@
+# =============================================================================
+# Advanced Pathway Visualizations
+# =============================================================================
+# Load reproducibility configuration
+source("/projects/vanaja_lab/satya/SCPA/Reproduce.R")
+
+# Load required libraries
 library(SCPA)
 library(Seurat)
 library(msigdbr)
@@ -5,23 +12,17 @@ library(magrittr)
 library(tidyverse)
 library(circlize)
 library(ComplexHeatmap)
+library(ggrepel)
+
+# Set seed for parallel processing
+set_parallel_seeds(n_cores = 20)
 
 
+# Load Hallmark pathways only
 hallmark_df <- msigdbr(species = "Homo sapiens", category = "H")
 
-
-c2_df <- msigdbr(species = "Homo sapiens", category = "C2")
-
-
-
-target_subcats <- c("CP:KEGG", "CP:REACTOME", "CP:BIOCARTA", "CP:WIKIPATHWAYS", "CP:PID")
-c2_filtered <- c2_df %>% 
-  dplyr::filter(gs_subcat %in% target_subcats)
-
-all_pathways_df <- bind_rows(hallmark_df, c2_filtered)
-
-
-pathways <- format_pathways(all_pathways_df)
+# Format pathways for SCPA
+pathways <- format_pathways(hallmark_df)
 
 
 split_treatment <- SplitObject(GSE164897, split.by = "treatment")
@@ -39,25 +40,25 @@ for (i in clusters) {
   
   cluster_obj <- subset(GSE164897, seurat_clusters == i)
   
-
+  
   if (ncol(cluster_obj) < 20) {
     print(paste("Skipping cluster", i, "- too few cells"))
     next
   }
   
   tryCatch({
-
+    
     untreated_sub <- seurat_extract(cluster_obj, meta1 = "treatment", value_meta1 = "untreated")
     vem_sub <- seurat_extract(cluster_obj, meta1 = "treatment", value_meta1 = "Vemurafenib")
     vem_cob_sub <- seurat_extract(cluster_obj, meta1 = "treatment", value_meta1 = "vem_cob")
     vem_tram_sub <- seurat_extract(cluster_obj, meta1 = "treatment", value_meta1 = "vem_tram")
     
-
+    
     idx <- as.character(i)
-
-    Pvem_tram[[idx]] <- compare_pathways(list(untreated_sub, vem_tram_sub), pathways, parallel = TRUE, cores = 4)
-    Pvem_cob[[idx]] <- compare_pathways(list(untreated_sub, vem_cob_sub), pathways, parallel = TRUE, cores = 4) 
-    Pvem[[idx]] <- compare_pathways(list(untreated_sub, vem_sub), pathways, parallel = TRUE, cores = 4)
+    
+    Pvem_tram[[idx]] <- compare_pathways(list(vem_tram_sub, untreated_sub), pathways, parallel = TRUE, cores = 20)
+    Pvem_cob[[idx]] <- compare_pathways(list(vem_cob_sub, untreated_sub ), pathways, parallel = TRUE, cores = 20) 
+    Pvem[[idx]] <- compare_pathways(list(vem_sub, untreated_sub), pathways, parallel = TRUE, cores = 20)
     
   }, error = function(e) {
     print(paste("Error in cluster", i, ":", e$message))
@@ -165,44 +166,98 @@ apply(mat, 1, var) %>%
 
 
 
-cluster_id <- "0"  
-if(cluster_id %in% names(Pvem_tram)) {
-  plot_data <- Pvem_tram[[cluster_id]] %>%
+# =============================================================================
+# CLUSTER-SPECIFIC VOLCANO PLOTS FOR ALL CLUSTERS
+# =============================================================================
+
+cat("\n=== Creating Volcano Plots for All Clusters ===\n")
+
+# Create a function to generate volcano plot for a cluster
+create_volcano_plot <- function(cluster_id, scpa_results, treatment_name) {
+  if(!cluster_id %in% names(scpa_results)) {
+    cat(paste("  ⚠ Cluster", cluster_id, "not found in", treatment_name, "results\n"))
+    return(NULL)
+  }
+  
+  plot_data <- scpa_results[[cluster_id]] %>%
     mutate(color = case_when(FC > 5 & adjPval < 0.01 ~ '#6dbf88',
                              FC < 5 & FC > -5 & adjPval < 0.01 ~ '#84b0f0',
                              FC < -5 & adjPval < 0.01 ~ 'mediumseagreen',
-                             TRUE ~ 'black')) # Added TRUE catch-all
+                             TRUE ~ 'black'))
   
-  aa_path <- plot_data %>% 
-    filter(grepl(pattern = "reactome_arachi", ignore.case = TRUE, x = Pathway))
-  
-  print(paste("Plotting Volcano for Cluster", cluster_id))
-  
+  # Find top pathways by fold change
   top_labels <- plot_data %>% 
     arrange(desc(abs(FC))) %>% 
     head(5)
-    
-  label_points <- bind_rows(top_labels, aa_path) %>% distinct()
   
-  # Ensure ggrepel is available
-  if (!require("ggrepel", quietly = TRUE)) install.packages("ggrepel")
-  library(ggrepel)
-
-  ggplot(plot_data, aes(-FC, qval)) +
+  # Create the plot
+  p <- ggplot(plot_data, aes(-FC, qval)) +
     geom_vline(xintercept = c(-5, 5), linetype = "dashed", col = 'black', lwd = 0.3) +
     geom_point(cex = 2.6, shape = 21, fill = plot_data$color, stroke = 0.3) +
-    geom_point(data = aa_path, shape = 21, cex = 2.8, fill = "orangered2", color = "black", stroke = 0.3) +
-    # Add labels
-    geom_text_repel(data = label_points, aes(label = Pathway), size = 3, max.overlaps = 20, box.padding = 0.5) +
-    # Dynamic limits to ensure all points are shown
+    geom_text_repel(data = top_labels, aes(label = Pathway), 
+                    size = 2.5, max.overlaps = 20, box.padding = 0.3) +
     scale_x_continuous(expand = expansion(mult = 0.1)) +
     scale_y_continuous(expand = expansion(mult = 0.1)) +
     xlab("Enrichment") +
-    ylab("Qval") +
-    ggtitle(paste("Volcano Plot: Cluster", cluster_id)) +
-    theme(panel.background = element_blank(),
-          panel.border = element_rect(fill = NA),
-          aspect.ratio = 1)
-} else {
-  print(paste("Cluster", cluster_id, "not found in results"))
+    ylab("Q-value") +
+    ggtitle(paste("Cluster", cluster_id, "-", treatment_name)) +
+    theme_minimal() +
+    theme(panel.border = element_rect(fill = NA, color = "black"),
+          aspect.ratio = 1,
+          plot.title = element_text(face = "bold", size = 10))
+  
+  return(p)
 }
+
+# Get all cluster IDs that were analyzed
+all_cluster_ids <- unique(c(names(Pvem_tram), names(Pvem_cob), names(Pvem)))
+cat(paste("Found", length(all_cluster_ids), "clusters with results\n"))
+
+# Create volcano plots for each treatment comparison
+treatments <- list(
+  "Untreated_vs_VemTram" = Pvem_tram,
+  "Untreated_vs_VemCob" = Pvem_cob,
+  "Untreated_vs_Vem" = Pvem
+)
+
+# Loop through each treatment
+for (treatment_name in names(treatments)) {
+  cat(paste("\n--- Creating volcano plots for:", treatment_name, "---\n"))
+  
+  scpa_results <- treatments[[treatment_name]]
+  plots_saved <- 0
+  
+  # Create and save individual plots for each cluster
+  for (cluster_id in all_cluster_ids) {
+    p <- create_volcano_plot(cluster_id, scpa_results, treatment_name)
+    
+    if (!is.null(p)) {
+      # Save individual plot as PDF
+      pdf_filename <- paste0("Volcano_Cluster", cluster_id, "_", treatment_name, ".pdf")
+      ggsave(pdf_filename, p, width = 8, height = 8)
+      
+      # Save individual plot as PNG
+      png_filename <- paste0("Volcano_Cluster", cluster_id, "_", treatment_name, ".png")
+      ggsave(png_filename, p, width = 8, height = 8, dpi = 300)
+      
+      cat(paste("  ✓ Saved Cluster", cluster_id, ":", pdf_filename, "&", png_filename, "\n"))
+      plots_saved <- plots_saved + 1
+    }
+  }
+  
+  cat(paste("  Total plots saved for", treatment_name, ":", plots_saved, "\n"))
+}
+
+cat("\n=== Volcano Plot Generation Complete ===\n")
+cat(paste("Created individual volcano plots for", length(all_cluster_ids), "clusters\n"))
+cat(paste("Processed", length(treatments), "treatment comparisons\n"))
+
+
+# Save session information for reproducibility
+save_session_info("session_info_visualizations.txt")
+create_reproducibility_report("visualizations.R")
+
+cat("\n=============================================================================\n")
+cat("✓ Visualization analysis complete\n")
+cat("✓ Reproducibility information saved\n")
+cat("=============================================================================\n")

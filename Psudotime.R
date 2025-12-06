@@ -7,7 +7,7 @@ library(ComplexHeatmap)
 library(circlize)
 library(msigdbr)
 
-
+source("/projects/vanaja_lab/satya/SCPA/Reproduce.R")
 var_genes <- VariableFeatures(GSE164897)
 
 counts <- GetAssayData(GSE164897, layer = "counts", assay = "RNA")

@@ -5,7 +5,7 @@ library(SeuratObject)
 library(org.Hs.eg.db)
 # Point to your directory
 base_dir <- "/projects/vanaja_lab/satya/SCTMR"  
-
+source("/projects/vanaja_lab/satya/SCPA/Reproduce.R")
 
 files <- list.files(
   base_dir,
@@ -230,6 +230,21 @@ if (length(unique_counts) == 1) {
   print("Expected size:", target_size)
   print("Actual sizes:", paste(paste(names(cell_counts_after), cell_counts_after, sep = "="), collapse = ", "))
 }
+
+
+ensembl_ids <- rownames(GSE164897)
+
+
+gene_symbols <- mapIds(x = org.Hs.eg.db,
+                       keys = ensembl_ids,
+                       column = "SYMBOL",
+                       keytype = "ENSEMBL",
+                       multiVals = "first") 
+
+gene_symbols <- make.unique(gene_symbols)
+
+rownames(GSE164897) <- gene_symbols
+GSE164897 <- GSE164897[!is.na(rownames(GSE164897)), ]
 
 
 GSE164897 <- NormalizeData(GSE164897)
