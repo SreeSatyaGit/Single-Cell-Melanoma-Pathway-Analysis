@@ -321,71 +321,29 @@ params0 = params_vector;
 
 % Parameter bounds
 num_params = length(params0);
-lb = 1e-8 * ones(num_params, 1);
-ub = 1e-4 * ones(num_params, 1);
 
-% Enhanced bounds for specific parameters
-% DUSP-ERK interaction (parameter 30)
-lb(30) = 1e-6;  % kErkDephos
-ub(30) = 1e-3;
+% RELAXED GLOBAL BOUNDS to improve fit accuracy
+% Previous bounds [1e-8, 1e-4] were too restrictive for enzymatic rates (e.g., k_cat)
+lb = 1e-12 * ones(num_params, 1);
+ub = 10.0 * ones(num_params, 1);  % Increased to allow faster rates
 
-% DUSP degradation (parameter 31)
-lb(31) = 1e-7;  % kDuspDeg
-ub(31) = 1e-4;
-
-% Bounds for new Her2/Her3 activation parameters (parameters 32-33)
-lb(32) = 1e-7;  % k_Her2_act
-ub(32) = 1e-3;
-lb(33) = 1e-7;  % k_Her3_act
-ub(33) = 1e-3;
-
-% Bounds for p85 binding parameters (parameters 34-37)
-lb(34) = 1e-6;  % k_p85_bind_EGFR
-ub(34) = 1e-3;
-lb(35) = 1e-6;  % k_p85_bind_Her2
-ub(35) = 1e-3;
-lb(36) = 1e-6;  % k_p85_bind_Her3
-ub(36) = 1e-3;
-lb(37) = 1e-6;  % k_p85_bind_IGFR
-ub(37) = 1e-3;
-
-% Bounds for p85 unbinding and PI3K recruitment (parameters 38-39)
-lb(38) = 1e-7;  % k_p85_unbind
-ub(38) = 1e-4;
-lb(39) = 1e-6;  % k_PI3K_recruit
-ub(39) = 1e-3;
-
-% Bounds for mTOR/4EBP1 parameters (parameters 45-48, updated indices)
-lb(45) = 1e-9;  % kb1 - allow smaller values for reverse reaction
-ub(45) = 1e-5;
-lb(46) = 1e-4;  % k43b1 - allow larger values for phosphorylation
-ub(46) = 1e-2;
-lb(47) = 1e-6;  % k4ebp1 - 4EBP1 phosphorylation rate by mTORC
-ub(47) = 1e-3;
-lb(48) = 1e-6;  % k_4EBP1_dephos - p4EBP1 dephosphorylation rate
-ub(48) = 1e-3;
-
-% Paradoxical activation parameters (parameters 58-63, updated indices)
+% Specific constraints for physical parameters (Concentrations, Hill coeffs)
+% Vemurafenib parameters (Concentration, IC50, Hill coefficient)
 lb(58) = 0.0;      % Vemurafenib concentration [0, 1]
-ub(58) = 1.0;
-lb(59) = 1e-7;     % kDimerForm
-ub(59) = 1e-3;
-lb(60) = 1e-6;     % kDimerDissoc
-ub(60) = 1e-3;
-lb(61) = 0.1;      % kParadoxCRAF
-ub(61) = 2.0;
+ub(58) = 1.0; 
 lb(62) = 0.01;     % IC50_vem
-ub(62) = 0.9;
+ub(62) = 0.99;
 lb(63) = 0.5;      % Hill_n_vem
-ub(63) = 3.0;
+ub(63) = 5.0;
 
-% Optimization options
+% Optimization options - Enhanced for better convergence
 opts = optimoptions(@fmincon, ...
     'Algorithm', 'sqp', ...
     'Display', 'iter', ...
-    'MaxIterations', 150, ...
-    'FunctionTolerance', 1e-6, ...
-    'StepTolerance', 1e-8);
+    'MaxIterations', 2000, ...      % Increased from 150 to ensure convergence
+    'MaxFunctionEvaluations', 100000, ... % Sufficient evaluations
+    'FunctionTolerance', 1e-7, ...  % Tighter tolerance
+    'StepTolerance', 1e-9);
 
 fprintf('Optimization setup complete. Parameters to optimize: %d\n\n', num_params);
 
@@ -550,9 +508,9 @@ paradox_species.CRAF = Y_fine(:,22);            % CRAF (inactive, now y(22))
 paradox_species.BRAF_P = Y_fine(:,25);          % BRAF^P (BRAF^V600E*, now y(25))
 paradox_species.BRAF = Y_fine(:,24);            % BRAF (inactive, now y(24))
 
-% Get vemurafenib concentration from optimized parameters (updated indices)
-Vemurafenib_conc = optimizedParams(54);  % Updated: Vemurafenib is now parameter 54
-kParadoxCRAF = optimizedParams(57);       % Updated: kParadoxCRAF is now parameter 57
+% Get vemurafenib concentration from optimized parameters (correct indices)
+Vemurafenib_conc = optimizedParams(58);  % Vemurafenib concentration (parameter 58)
+kParadoxCRAF = optimizedParams(61);       % Paradoxical activation strength (parameter 61)
 
 % Calculate paradoxical activation rate over time
 paradox_activation_rate = kParadoxCRAF * Vemurafenib_conc * paradox_species.dimer;
@@ -628,8 +586,8 @@ set(gca, 'FontSize', 10);
 
 % Plot 5: Dimer formation and dissociation
 subplot(2, 3, 5);
-kDimerForm = optimizedParams(55);  % Updated: kDimerForm is now parameter 55
-kDimerDissoc = optimizedParams(56);  % Updated: kDimerDissoc is now parameter 56
+kDimerForm = optimizedParams(59);  % Dimer formation rate (parameter 59)
+kDimerDissoc = optimizedParams(60);  % Dimer dissociation rate (parameter 60)
 dimer_formation_rate = kDimerForm * paradox_species.BRAF_P .* paradox_species.CRAF * Vemurafenib_conc;
 dimer_dissociation_rate = kDimerDissoc * paradox_species.dimer;
 
@@ -681,8 +639,8 @@ fprintf('   PARADOXICAL ACTIVATION PARAMETERS\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
 fprintf('Vemurafenib Concentration: %.4f (normalized [0,1])\n', Vemurafenib_conc);
 fprintf('Paradoxical Activation Strength (gamma): %.4f\n', kParadoxCRAF);
-fprintf('Dimer Formation Rate: %.6e (min^-1)\n', optimizedParams(55));
-fprintf('Dimer Dissociation Rate: %.6e (min^-1)\n', optimizedParams(56));
+fprintf('Dimer Formation Rate: %.6e (min^-1)\n', optimizedParams(59));
+fprintf('Dimer Dissociation Rate: %.6e (min^-1)\n', optimizedParams(60));
 fprintf('Maximum Dimer Concentration: %.6e\n', max(paradox_species.dimer));
 fprintf('Maximum Paradoxical Activation Rate: %.6e\n', max(paradox_activation_rate));
 fprintf('\n');

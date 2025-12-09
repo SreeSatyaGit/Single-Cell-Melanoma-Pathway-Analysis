@@ -25,6 +25,10 @@
 %   - BRAF-WT dimerization with CRAF/ARAF (paradoxical activation mechanism)
 %   - Sequential MEK and ERK phosphorylation
 %   - ERK-P negative feedback (relieved when vemurafenib reduces ERK-P)
+%   - DUSP (dual-specificity phosphatase) feedback: pERK-induced DUSP transcription
+%     and translation, DUSP enhances ERK dephosphorylation
+%   - SPRY (Sprouty) feedback: pERK-induced SPRY transcription and translation,
+%     SPRY sequesters Grb2, reducing SOS activation
 %
 % PATHWAY 2: EGFR → PI3K/AKT/mTOR
 %   - PI3K activation by pEGFR/pHER3 (and RAS-GTP cross-talk)
@@ -196,6 +200,34 @@ Hill_n = 1.5;         % Hill coefficient (cooperativity, typically 1-2 for drugs
 gamma = 0.5;           % Paradoxical CRAF activation strength
 delta = 0.1;           % Paradoxical ARAF activation strength (minor)
 
+% ============================================================================
+% DUSP AND SPRY FEEDBACK PARAMETERS
+% ============================================================================
+
+% DUSP (Dual-specificity phosphatase) parameters
+Vtx_DUSP = 0.5;        % Normalized [0,1]/min - Maximum DUSP transcription rate
+K_DUSP = 0.1;          % Normalized [0,1] - Hill Kd for pERK induction
+n_DUSP = 2.0;          % Hill coefficient for DUSP transcription
+k_deg_mDUSP = 0.2;     % min^-1 - DUSP mRNA degradation rate
+k_tl_DUSP = 0.2;       % min^-1 - DUSP translation rate
+k_deg_DUSP = 0.05;     % min^-1 - DUSP protein degradation rate
+k_cat_DUSP = 0.5;      % min^-1 - DUSP catalytic rate constant
+Vmax_DUSP = 1.0;       % min^-1 - Maximum DUSP dephosphorylation rate
+Km_DUSP = 0.1;         % Normalized [0,1] - Michaelis-Menten Km for pERK
+
+% SPRY (Sprouty) parameters
+Vtx_SPRY = 0.3;        % Normalized [0,1]/min - Maximum SPRY transcription rate
+K_SPRY = 0.1;          % Normalized [0,1] - Hill Kd for pERK induction
+n_SPRY = 2.0;          % Hill coefficient for SPRY transcription
+k_deg_mSPRY = 0.2;     % min^-1 - SPRY mRNA degradation rate
+k_tl_SPRY = 0.2;       % min^-1 - SPRY translation rate
+k_deg_SPRY = 0.05;     % min^-1 - SPRY protein degradation rate
+k_bind_SPRY_Grb2 = 0.01; % Normalized [0,1]^-1 min^-1 - SPRY:Grb2 binding rate
+k_unbind_SPRY_Grb2 = 0.1; % min^-1 - SPRY:Grb2 unbinding rate
+k_deg_complex = 0.05;  % min^-1 - SPRY:Grb2 complex degradation rate
+gamma_SPRY = 0.1;      % Normalized [0,1]^-1 - SPRY inhibition strength (multiplicative mode)
+h_coop = 1.0;          % Cooperativity parameter for Grb2 effect
+
 % Store all parameters in structure
 params.k_on_Shc = k_on_Shc;
 params.k_off_Shc = k_off_Shc;
@@ -250,10 +282,31 @@ params.IC50_vem = IC50_vem;
 params.Hill_n = Hill_n;
 params.gamma = gamma;
 params.delta = delta;
+params.Vtx_DUSP = Vtx_DUSP;
+params.K_DUSP = K_DUSP;
+params.n_DUSP = n_DUSP;
+params.k_deg_mDUSP = k_deg_mDUSP;
+params.k_tl_DUSP = k_tl_DUSP;
+params.k_deg_DUSP = k_deg_DUSP;
+params.k_cat_DUSP = k_cat_DUSP;
+params.Vmax_DUSP = Vmax_DUSP;
+params.Km_DUSP = Km_DUSP;
+params.Vtx_SPRY = Vtx_SPRY;
+params.K_SPRY = K_SPRY;
+params.n_SPRY = n_SPRY;
+params.k_deg_mSPRY = k_deg_mSPRY;
+params.k_tl_SPRY = k_tl_SPRY;
+params.k_deg_SPRY = k_deg_SPRY;
+params.k_bind_SPRY_Grb2 = k_bind_SPRY_Grb2;
+params.k_unbind_SPRY_Grb2 = k_unbind_SPRY_Grb2;
+params.k_deg_complex = k_deg_complex;
+params.gamma_SPRY = gamma_SPRY;
+params.h_coop = h_coop;
 params.pRTK_func = pRTK_func;
 params.vemurafenib_func = vemurafenib_func;
 
-fprintf('Parameters configured for both pathways with vemurafenib effects.\n\n');
+fprintf('Parameters configured for both pathways with vemurafenib effects.\n');
+fprintf('DUSP and SPRY feedback parameters included.\n\n');
 
 %% ============================================================================
 % INITIAL CONDITIONS
@@ -341,7 +394,14 @@ pS6K0 = 0.0;          % Normalized: phosphorylated S6K
 EBP1_0 = 1.0;         % Normalized: inactive 4EBP1
 p4EBP1_0 = 0.0;       % Normalized: phosphorylated 4EBP1
 
-% Combined initial state vector: [MAPK species (23), PI3K species (16)]
+% DUSP and SPRY feedback species (normalized: start at zero, induced by pERK)
+mDUSP0 = 0.0;         % Normalized: DUSP mRNA
+DUSP0 = 0.0;          % Normalized: DUSP protein
+mSPRY0 = 0.0;         % Normalized: SPRY mRNA
+SPRY0 = 0.0;          % Normalized: SPRY protein
+SPRY_Grb2_0 = 0.0;    % Normalized: SPRY:Grb2 complex
+
+% Combined initial state vector: [MAPK species (24), PI3K species (16), DUSP/SPRY (5)]
 y0 = [Shc0; pEGFR_Shc0; pShc0; Grb2_0; pShc_Grb2_0; SOS_0; ...
       pShc_Grb2_SOS_0; SOS_star0; RAS_GDP0; RAS_GTP0; ...
       BRAF_mut0; BRAF_mut_star0; CRAF0; CRAF_star0; ARAF0; ARAF_star0; ...
@@ -349,9 +409,11 @@ y0 = [Shc0; pEGFR_Shc0; pShc0; Grb2_0; pShc_Grb2_0; SOS_0; ...
       MEK0; MEK_P0; ERK0; ERK_P0; ...
       PI3K0; PI3K_active0; PIP2_0; PIP3_0; AKT0; pAKT_Thr308_0; ...
       pAKT_Ser473_0; pAKT_full_0; TSC2_active0; Rheb_GTP0; ...
-      mTORC1_0; mTORC1_active0; S6K0; pS6K0; EBP1_0; p4EBP1_0];
+      mTORC1_0; mTORC1_active0; S6K0; pS6K0; EBP1_0; p4EBP1_0; ...
+      mDUSP0; DUSP0; mSPRY0; SPRY0; SPRY_Grb2_0];
 
-fprintf('Initial conditions set. BRAF^{V600E}* initially active.\n\n');
+fprintf('Initial conditions set. BRAF^{V600E}* initially active.\n');
+fprintf('DUSP and SPRY start at zero (induced by pERK).\n\n');
 
 %% ============================================================================
 % TIME SPAN
@@ -414,6 +476,13 @@ S6K = y(:, 37);
 pS6K = y(:, 38);
 EBP1 = y(:, 39);
 p4EBP1 = y(:, 40);
+
+% Extract DUSP and SPRY feedback species
+mDUSP = y(:, 41);
+DUSP = y(:, 42);
+mSPRY = y(:, 43);
+SPRY = y(:, 44);
+SPRY_Grb2 = y(:, 45);
 
 % Calculate input signals over time
 pRTK_signal = arrayfun(pRTK_func, t);
@@ -515,6 +584,95 @@ hold off;
 sgtitle('BRAF, RAS, MEK, and ERK Species Dynamics', ...
         'FontSize', 16, 'FontWeight', 'bold');
 
+% Figure 2: DUSP and SPRY Feedback Dynamics
+figure('Position', [100, 100, 1400, 900]);
+
+% DUSP mRNA and Protein
+subplot(2, 3, 1);
+plot(t, mDUSP, 'r--', 'LineWidth', 1.5, 'DisplayName', 'mDUSP (mRNA)');
+hold on;
+plot(t, DUSP, 'r-', 'LineWidth', 2.5, 'DisplayName', 'DUSP (protein)');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('DUSP Expression', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+hold off;
+
+% SPRY mRNA and Protein
+subplot(2, 3, 2);
+plot(t, mSPRY, 'b--', 'LineWidth', 1.5, 'DisplayName', 'mSPRY (mRNA)');
+hold on;
+plot(t, SPRY, 'b-', 'LineWidth', 2.5, 'DisplayName', 'SPRY (protein)');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('SPRY Expression', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+hold off;
+
+% SPRY:Grb2 Complex
+subplot(2, 3, 3);
+plot(t, SPRY_Grb2, 'm-', 'LineWidth', 2.5, 'DisplayName', 'SPRY:Grb2');
+hold on;
+Grb2_free_plot = max(0, 1.0 - pShc_Grb2 - SPRY_Grb2);  % Free Grb2
+plot(t, Grb2_free_plot, 'c-', 'LineWidth', 2, 'DisplayName', 'Grb2_{free}');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('SPRY:Grb2 Complex and Free Grb2', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+hold off;
+
+% pERK with DUSP Feedback Effect
+subplot(2, 3, 4);
+plot(t, ERK_P, 'g-', 'LineWidth', 2.5, 'DisplayName', 'pERK');
+hold on;
+plot(t, DUSP, 'r--', 'LineWidth', 2, 'DisplayName', 'DUSP');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('pERK and DUSP Feedback', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+hold off;
+
+% SOS Activation and SPRY Feedback
+subplot(2, 3, 5);
+plot(t, SOS_star, 'Color', [1 0.5 0], 'LineWidth', 2.5, 'DisplayName', 'SOS*');
+hold on;
+plot(t, SPRY, 'b--', 'LineWidth', 2, 'DisplayName', 'SPRY');
+xlabel('Time (minutes)', 'FontSize', 12);
+ylabel('Normalized Concentration [0,1]', 'FontSize', 12);
+title('SOS* Activation and SPRY Feedback', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+hold off;
+
+% Combined Feedback: pERK, DUSP, and SPRY
+subplot(2, 3, 6);
+yyaxis left;
+plot(t, ERK_P, 'g-', 'LineWidth', 2.5, 'DisplayName', 'pERK');
+ylabel('pERK (normalized [0,1])', 'FontSize', 12);
+hold on;
+yyaxis right;
+plot(t, DUSP, 'r--', 'LineWidth', 2, 'DisplayName', 'DUSP');
+plot(t, SPRY, 'b--', 'LineWidth', 2, 'DisplayName', 'SPRY');
+ylabel('DUSP/SPRY (normalized [0,1])', 'FontSize', 12);
+xlabel('Time (minutes)', 'FontSize', 12);
+title('Combined Feedback: pERK, DUSP, and SPRY', 'FontSize', 14, 'FontWeight', 'bold');
+legend('Location', 'best', 'FontSize', 10);
+grid on;
+xlim([0, tspan(2)]);
+hold off;
+
+sgtitle('DUSP and SPRY Feedback Dynamics', ...
+        'FontSize', 16, 'FontWeight', 'bold');
+
 % Calculate contributions for summary statistics
 contribution_BRAF_mut = k_MEK * BRAF_mut_star .* MEK;
 contribution_CRAF = k_MEK * CRAF_star .* MEK;
@@ -531,9 +689,7 @@ fprintf('═══════════════════════�
 
 % Find drug addition time
 drug_time_idx = find(vemurafenib_signal > 0, 1);
-if isempty(drug_time_idx)
-    drug_time_idx = length(t);
-end
+drug_time_idx = max(1, min(drug_time_idx, length(t)));  % Default to last time if not found
 drug_time = t(drug_time_idx);
 
 fprintf('VEMURAFENIB TREATMENT:\n');
@@ -542,11 +698,7 @@ fprintf('  Peak drug concentration: %.4f (normalized [0,1])\n', max(vemurafenib_
 
 fprintf('\nMAPK PATHWAY - RAF ISOFORMS:\n');
 % Handle case where drug starts at t=0
-if drug_time_idx > 1
-    before_idx = drug_time_idx - 1;
-else
-    before_idx = 1;
-end
+before_idx = max(1, drug_time_idx - 1);
 [max_BRAF_mut_star, idx_BRAF_mut] = max(BRAF_mut_star);
 [max_CRAF_star, idx_CRAF] = max(CRAF_star);
 [max_ARAF_star, idx_ARAF] = max(ARAF_star);
@@ -570,6 +722,21 @@ fprintf('  Peak mTORC1_active:   %.4f (normalized [0,1]) at t = %.2f min\n', max
 fprintf('  Peak pS6K:            %.4f (normalized [0,1]) at t = %.2f min\n', max_pS6K, t(idx_S6K));
 fprintf('  Peak p4EBP1:          %.4f (normalized [0,1]) at t = %.2f min\n', max_p4EBP1, t(idx_4EBP1));
 
+fprintf('\nDUSP AND SPRY FEEDBACK:\n');
+[max_mDUSP, idx_mDUSP] = max(mDUSP);
+[max_DUSP, idx_DUSP] = max(DUSP);
+[max_mSPRY, idx_mSPRY] = max(mSPRY);
+[max_SPRY, idx_SPRY] = max(SPRY);
+[max_SPRY_Grb2, idx_SPRY_Grb2] = max(SPRY_Grb2);
+fprintf('  Peak mDUSP:           %.4f (normalized [0,1]) at t = %.2f min\n', max_mDUSP, t(idx_mDUSP));
+fprintf('  Peak DUSP:            %.4f (normalized [0,1]) at t = %.2f min\n', max_DUSP, t(idx_DUSP));
+fprintf('  Peak mSPRY:           %.4f (normalized [0,1]) at t = %.2f min\n', max_mSPRY, t(idx_mSPRY));
+fprintf('  Peak SPRY:            %.4f (normalized [0,1]) at t = %.2f min\n', max_SPRY, t(idx_SPRY));
+fprintf('  Peak SPRY:Grb2:       %.4f (normalized [0,1]) at t = %.2f min\n', max_SPRY_Grb2, t(idx_SPRY_Grb2));
+% Calculate minimum free Grb2
+min_Grb2_free = min(max(0, 1.0 - pShc_Grb2 - SPRY_Grb2));
+fprintf('  Minimum Grb2_free:    %.4f (normalized [0,1])\n', min_Grb2_free);
+
 fprintf('\nPARADOXICAL ACTIVATION:\n');
 fprintf('  Peak BRAF-WT:CRAF dimer: %.4f (normalized [0,1])\n', max(BRAF_WT_CRAF_dimer));
 fprintf('  Peak BRAF-WT:ARAF dimer: %.4f (normalized [0,1])\n', max(BRAF_WT_ARAF_dimer));
@@ -586,6 +753,10 @@ fprintf('  RAS → PI3K:           k_PI3K_RAS = %.2f\n', k_PI3K_RAS);
 fprintf('  ERK → TSC2:           alpha3 = %.2f\n', alpha3);
 fprintf('  AKT → CRAF:           alpha2 = %.2f\n', alpha2);
 fprintf('  pS6K → PI3K:         alpha1 = %.2f\n', alpha1);
+fprintf('  DUSP transcription:   Vtx_DUSP = %.2f, K_DUSP = %.2f, n_DUSP = %.2f\n', Vtx_DUSP, K_DUSP, n_DUSP);
+fprintf('  SPRY transcription:   Vtx_SPRY = %.2f, K_SPRY = %.2f, n_SPRY = %.2f\n', Vtx_SPRY, K_SPRY, n_SPRY);
+fprintf('  DUSP catalytic:       Vmax_DUSP = %.2f, Km_DUSP = %.2f\n', Vmax_DUSP, Km_DUSP);
+fprintf('  SPRY:Grb2 binding:    k_bind = %.4f, k_unbind = %.2f\n', k_bind_SPRY_Grb2, k_unbind_SPRY_Grb2);
 
 fprintf('\n═══════════════════════════════════════════════════════════════════════════\n');
 fprintf('   SIMULATION COMPLETED SUCCESSFULLY!\n');
@@ -598,7 +769,8 @@ fprintf('═══════════════════════�
 save('vemurafenib_craf_araf_output.mat', 't', 'ERK_P', 'pAKT_full', 'pS6K', 'p4EBP1', ...
      'BRAF_mut_star', 'CRAF_star', 'ARAF_star', 'BRAF_WT_star', 'MEK_P', 'RAS_GTP', ...
      'PIP3', 'Rheb_GTP', 'mTORC1_active', 'pRTK_signal', 'vemurafenib_signal', ...
-     'BRAF_WT_CRAF_dimer', 'BRAF_WT_ARAF_dimer');
+     'BRAF_WT_CRAF_dimer', 'BRAF_WT_ARAF_dimer', ...
+     'mDUSP', 'DUSP', 'mSPRY', 'SPRY', 'SPRY_Grb2');
 fprintf('Saved outputs to vemurafenib_craf_araf_output.mat\n');
 
 %% ============================================================================
@@ -608,12 +780,14 @@ fprintf('Saved outputs to vemurafenib_craf_araf_output.mat\n');
 function dydt = vemurafenib_craf_araf_odes(t, y, p)
     % Integrated ODE system for MAPK and PI3K/AKT/mTOR pathways with vemurafenib
     % Includes BRAF^V600E, CRAF, ARAF, and BRAF-WT with paradoxical activation
+    % Includes DUSP and SPRY feedback mechanisms
     % y = [MAPK: Shc, pEGFR_Shc, pShc, Grb2, pShc_Grb2, SOS, pShc_Grb2_SOS, SOS_star,
     %      RAS_GDP, RAS_GTP, BRAF_mut, BRAF_mut_star, CRAF, CRAF_star, ARAF, ARAF_star,
     %      BRAF_WT, BRAF_WT_star, BRAF_WT_CRAF_dimer, BRAF_WT_ARAF_dimer,
     %      MEK, MEK_P, ERK, ERK_P;
     %      PI3K: PI3K, PI3K_active, PIP2, PIP3, AKT, pAKT_Thr308, pAKT_Ser473, pAKT_full,
-    %      TSC2_active, Rheb_GTP, mTORC1, mTORC1_active, S6K, pS6K, 4EBP1, p4EBP1]
+    %      TSC2_active, Rheb_GTP, mTORC1, mTORC1_active, S6K, pS6K, 4EBP1, p4EBP1;
+    %      DUSP/SPRY: mDUSP, DUSP, mSPRY, SPRY, SPRY_Grb2]
     
     % Extract MAPK pathway species
     Shc = y(1);
@@ -659,6 +833,13 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
     EBP1 = y(39);
     p4EBP1 = y(40);
     
+    % Extract DUSP and SPRY feedback species
+    mDUSP = y(41);
+    DUSP = y(42);
+    mSPRY = y(43);
+    SPRY = y(44);
+    SPRY_Grb2 = y(45);
+    
     % Get input signals at current time
     pRTK = p.pRTK_func(t);
     vemurafenib = p.vemurafenib_func(t);
@@ -695,6 +876,45 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
     k_TSC2_ERK = p.k_TSC2_base + p.alpha3 * ERK_P;
     
     % ========================================================================
+    % DUSP AND SPRY TRANSCRIPTIONAL INDUCTION BY pERK
+    % ========================================================================
+    
+    % DUSP transcription (Hill-type induction by pERK)
+    ERK_P_n_DUSP = ERK_P^p.n_DUSP;
+    K_DUSP_n = p.K_DUSP^p.n_DUSP;
+    v_tx_DUSP = p.Vtx_DUSP * (ERK_P_n_DUSP / (K_DUSP_n + ERK_P_n_DUSP));
+    
+    % SPRY transcription (Hill-type induction by pERK)
+    ERK_P_n_SPRY = ERK_P^p.n_SPRY;
+    K_SPRY_n = p.K_SPRY^p.n_SPRY;
+    v_tx_SPRY = p.Vtx_SPRY * (ERK_P_n_SPRY / (K_SPRY_n + ERK_P_n_SPRY));
+    
+    % ========================================================================
+    % DUSP AND SPRY FEEDBACK ON MAPK PATHWAY
+    % ========================================================================
+    
+    % DUSP catalytic dephosphorylation of pERK (Michaelis-Menten)
+    % Use smooth transition: when Km_DUSP > 0 use Michaelis-Menten, else use first-order
+    % Heaviside-like function: H(x) = 0.5 * (1 + sign(x)) for x > 0, else 0
+    H_Km = 0.5 * (1 + sign(p.Km_DUSP - eps));  % 1 if Km_DUSP > eps, else 0
+    Km_DUSP_eff = max(eps, p.Km_DUSP);
+    k_deph_ERK_DUSP = H_Km * (p.Vmax_DUSP * DUSP / (Km_DUSP_eff + ERK_P)) + ...
+                      (1 - H_Km) * (p.k_cat_DUSP * DUSP);  % First-order when Km <= eps
+    k_ERK_deact_eff = p.k_ERK_deact + k_deph_ERK_DUSP;
+    
+    % SPRY action: sequestration of Grb2 (reduce free Grb2 available for SOS)
+    % Calculate free Grb2 (total Grb2 pool = 1.0 normalized, minus bound forms)
+    Grb2_total = 1.0;  % Normalized total Grb2 pool
+    Grb2_free = max(0, Grb2_total - pShc_Grb2 - SPRY_Grb2);
+    
+    % SPRY feedback on SOS activation (via Grb2 sequestration)
+    % Effective SOS activation rate depends on free Grb2
+    % Use max(eps, Grb2_total) to avoid division by zero
+    Grb2_total_eff = max(eps, Grb2_total);
+    Grb2_ratio = max(0, Grb2_free / Grb2_total_eff);
+    k_on2_eff = p.k_on2 * (Grb2_ratio^p.h_coop);  % Cooperativity effect
+    
+    % ========================================================================
     % MAPK PATHWAY REACTIONS
     % ========================================================================
     
@@ -702,7 +922,7 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
     r1_forward = k_on_Shc_eff * pRTK * Shc;
     r1_reverse = p.k_off_Shc * pEGFR_Shc;
     r1_cat = p.k_cat1 * pEGFR_Shc;
-    r2_forward = p.k_on2 * pShc * Grb2;
+    r2_forward = k_on2_eff * pShc * Grb2_free;  % Use free Grb2 (SPRY feedback)
     r2_reverse = p.k_off2 * pShc_Grb2;
     r3_forward = p.k_on3 * pShc_Grb2 * SOS;
     r3_reverse = p.k_off3 * pShc_Grb2_SOS;
@@ -736,13 +956,10 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
     r18 = 0.1 * BRAF_WT_ARAF_dimer;  % Dimer dissociation (simplified)
     
     % Paradoxical activation from dimers (when vemurafenib is present)
-    if vemurafenib > 0
-        r19 = p.gamma * vemurafenib * BRAF_WT_CRAF_dimer;  % CRAF* from dimer
-        r20 = p.delta * vemurafenib * BRAF_WT_ARAF_dimer;  % ARAF* from dimer
-    else
-        r19 = 0;
-        r20 = 0;
-    end
+    % Use max(0, vemurafenib) to ensure non-negative, multiplied by step function
+    vemurafenib_eff = max(0, vemurafenib);
+    r19 = p.gamma * vemurafenib_eff * BRAF_WT_CRAF_dimer;  % CRAF* from dimer
+    r20 = p.delta * vemurafenib_eff * BRAF_WT_ARAF_dimer;  % ARAF* from dimer
     
     % MEK phosphorylation by all RAF isoforms
     r21 = p.k_MEK * BRAF_mut_star * MEK;  % BRAF^V600E contribution
@@ -753,12 +970,30 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
     
     % ERK phosphorylation
     r26 = p.k_ERK * MEK_P * ERK;
-    r27 = p.k_ERK_deact * ERK_P;
-
-    % DUSP6 
-
-
-    % Sprouty 
+    r27 = k_ERK_deact_eff * ERK_P;  % Enhanced by DUSP feedback
+    
+    % ========================================================================
+    % DUSP AND SPRY REACTIONS
+    % ========================================================================
+    
+    % DUSP mRNA dynamics
+    r_DUSP_tx = v_tx_DUSP;  % Transcription (Hill-type by pERK)
+    r_DUSP_mRNA_deg = p.k_deg_mDUSP * mDUSP;  % mRNA degradation
+    
+    % DUSP protein dynamics
+    r_DUSP_tl = p.k_tl_DUSP * mDUSP;  % Translation
+    r_DUSP_deg = p.k_deg_DUSP * DUSP;  % Protein degradation
+    
+    % SPRY mRNA dynamics
+    r_SPRY_tx = v_tx_SPRY;  % Transcription (Hill-type by pERK)
+    r_SPRY_mRNA_deg = p.k_deg_mSPRY * mSPRY;  % mRNA degradation
+    
+    % SPRY protein dynamics and Grb2 binding
+    r_SPRY_tl = p.k_tl_SPRY * mSPRY;  % Translation
+    r_SPRY_deg = p.k_deg_SPRY * SPRY;  % Protein degradation
+    r_SPRY_bind = p.k_bind_SPRY_Grb2 * SPRY * Grb2_free;  % SPRY:Grb2 binding
+    r_SPRY_unbind = p.k_unbind_SPRY_Grb2 * SPRY_Grb2;  % SPRY:Grb2 unbinding
+    r_SPRY_Grb2_deg = p.k_deg_complex * SPRY_Grb2;  % Complex degradation
     
     % ========================================================================
     % PI3K/AKT/mTOR PATHWAY REACTIONS
@@ -803,7 +1038,7 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
     dShc_dt = -r1_forward + r1_reverse;
     dpEGFR_Shc_dt = r1_forward - r1_reverse - r1_cat;
     dpShc_dt = r1_cat - r2_forward + r2_reverse;
-    dGrb2_dt = -r2_forward + r2_reverse;
+    dGrb2_dt = -r2_forward + r2_reverse - r_SPRY_bind + r_SPRY_unbind;  % SPRY binding feedback
     dpShc_Grb2_dt = r2_forward - r2_reverse - r3_forward + r3_reverse + r3_cat;
     dSOS_dt = -r3_forward + r3_reverse + r4;
     dpShc_Grb2_SOS_dt = r3_forward - r3_reverse - r3_cat;
@@ -846,6 +1081,25 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
     dEBP1_dt = -r45 + r46;
     dp4EBP1_dt = r45 - r46;
     
+    % ========================================================================
+    % ODEs FOR DUSP AND SPRY FEEDBACK
+    % ========================================================================
+    
+    % DUSP mRNA
+    dmDUSP_dt = r_DUSP_tx - r_DUSP_mRNA_deg;
+    
+    % DUSP protein
+    dDUSP_dt = r_DUSP_tl - r_DUSP_deg;
+    
+    % SPRY mRNA
+    dmSPRY_dt = r_SPRY_tx - r_SPRY_mRNA_deg;
+    
+    % SPRY protein
+    dSPRY_dt = r_SPRY_tl - r_SPRY_deg - r_SPRY_bind + r_SPRY_unbind;
+    
+    % SPRY:Grb2 complex
+    dSPRY_Grb2_dt = r_SPRY_bind - r_SPRY_unbind - r_SPRY_Grb2_deg;
+    
     % Return all derivatives
     dydt = [dShc_dt; dpEGFR_Shc_dt; dpShc_dt; dGrb2_dt; dpShc_Grb2_dt; ...
             dSOS_dt; dpShc_Grb2_SOS_dt; dSOS_star_dt; ...
@@ -858,6 +1112,7 @@ function dydt = vemurafenib_craf_araf_odes(t, y, p)
             dPI3K_dt; dPI3K_active_dt; dPIP2_dt; dPIP3_dt; ...
             dAKT_dt; dpAKT_Thr308_dt; dpAKT_Ser473_dt; dpAKT_full_dt; ...
             dTSC2_active_dt; dRheb_GTP_dt; dmTORC1_dt; dmTORC1_active_dt; ...
-            dS6K_dt; dpS6K_dt; dEBP1_dt; dp4EBP1_dt];
+            dS6K_dt; dpS6K_dt; dEBP1_dt; dp4EBP1_dt; ...
+            dmDUSP_dt; dDUSP_dt; dmSPRY_dt; dSPRY_dt; dSPRY_Grb2_dt];
 end
 
