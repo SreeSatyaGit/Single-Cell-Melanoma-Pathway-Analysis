@@ -63,7 +63,7 @@ for (i in cell_types) {
     v_n <- if(is.null(vem_sub)) 0 else ncol(vem_sub)
     
     if (u_n < 3) {
-       print(paste("  Skipping", i, "- insufficient Untreated cells for comparison"))
+      print(paste("  Skipping", i, "- insufficient Untreated cells for comparison"))
     } else {
       idx <- as.character(i)
       if (vt_n >= 3) try({ Pvem_tram[[idx]] <- compare_pathways(list(vem_tram_sub, untreated_sub), pathways, parallel = TRUE, cores = 20) }, silent = TRUE)
@@ -199,9 +199,9 @@ EEEEEE
 
 # Note: Using p_mech_bar (Panel D) and p_crosstalk_scatter (Panel E)
 fig1 <- (p_umap_tx | p_umap_ct) / 
-        as.ggplot(p_heatmap_grob) / 
-        p_mech_bar /
-        p_crosstalk_scatter + 
+  as.ggplot(p_heatmap_grob) / 
+  p_mech_bar /
+  p_crosstalk_scatter + 
   plot_layout(heights = c(1, 2, 1.2, 1.5)) +
   plot_annotation(tag_levels = 'A', 
                   title = "Figure 1: MAPK-PI3K Crosstalk Drives Resistance to BRAF+MEK Inhibition",
