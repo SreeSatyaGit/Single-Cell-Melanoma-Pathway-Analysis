@@ -77,7 +77,7 @@ params.RAF.k_CRAF_degrad = 1.7342e-4;    % pCRAF degradation (min^-1)
 % ----------------------------------------------------------------------------
 params.MEK.k_phos = 7e-6;            % MEK phosphorylation by RAF (min^-1)
 params.MEK.k_ERK_phos = 20.7342e-5;  % ERK phosphorylation of pMEK (min^-1)
-params.MEK.k_degrad = 1.7342e-4;     % pMEK degradation (min^-1)
+params.MEK.k_degrad = 1.7342e-8;     % pMEK degradation (min^-1)
 params.MEK.k_BRAF_route = 8e-6;      % BRAF^P → MEK (min^-1)
 params.MEK.k_CRAF_route = 8e-6;      % CRAF* → MEK (min^-1)
 
@@ -92,7 +92,7 @@ params.ERK.k_DUSP_dephos = 1e-5;     % DUSP dephosphorylation of pERK (min^-1)
 % ----------------------------------------------------------------------------
 % 1.7 DUSP Feedback Module Parameters
 % ----------------------------------------------------------------------------
-params.DUSP.k_max_tx = 1.11e-4;      % Maximum DUSP transcription rate (min^-1)
+params.DUSP.k_max_tx = 1.11e-8;      % Maximum DUSP transcription rate (min^-1)
 params.DUSP.k_DUSP_stop = 1.7342e-04; % DUSP stop signal (min^-1)
 params.DUSP.k_DUSP_deg = 1e-6;       % DUSP degradation by ERK (min^-1)
 
@@ -217,7 +217,7 @@ IC.KRAS = [1.0, 0.0, 1.0];          % KRAS-GDP, intermediate, KRAS-GTP
 
 % RAF Module
 IC.CRAF = [0.8, 0.2];               % CRAF, pCRAF
-IC.BRAF = [0.0, 1.0];               % BRAF, BRAF^P (BRAF^V600E*)
+IC.BRAF = [1.0, 1.0];               % BRAF, BRAF^P (BRAF^V600E*)
 
 % MEK/ERK Module
 IC.MEK = [1.0, 1.0];                % MEK, pMEK
@@ -325,7 +325,7 @@ num_params = length(params0);
 % RELAXED GLOBAL BOUNDS to improve fit accuracy
 % Previous bounds [1e-8, 1e-4] were too restrictive for enzymatic rates (e.g., k_cat)
 lb = 1e-12 * ones(num_params, 1);
-ub = 10.0 * ones(num_params, 1);  % Increased to allow faster rates
+ub = 1e-3 * ones(num_params, 1);  % Increased to allow faster rates
 
 % Specific constraints for physical parameters (Concentrations, Hill coeffs)
 % Vemurafenib parameters (Concentration, IC50, Hill coefficient)
@@ -373,7 +373,8 @@ fprintf('Minimum Fit Error: %.6e\n\n', errorOpt);
 fprintf('Simulating with optimized parameters...\n');
 
 % Simulate at experimental time points
-[T_all, Y_all] = ode45(@(t,y) Mapk_ODE(t, y, optimizedParams), ...
+% Simulate at experimental time points
+[T_all, Y_all] = ode15s(@(t,y) Mapk_ODE(t, y, optimizedParams), ...
                        timeStamps_seconds, y0);
 
 % Normalization helper function
@@ -429,7 +430,7 @@ fprintf('Generating visualization plots...\n');
 tFine_hours = linspace(0, 48, 400);
 tFine_seconds = tFine_hours * 3600;
 
-[T_fine, Y_fine] = ode45(@(t,y) Mapk_ODE(t, y, optimizedParams), ...
+[T_fine, Y_fine] = ode15s(@(t,y) Mapk_ODE(t, y, optimizedParams), ...
                          tFine_seconds, y0);
 
 % Normalize smooth model outputs
@@ -1284,8 +1285,8 @@ function dydt = Mapk_ODE(t, y, p)
                + paradox_activation;  % pCRAF (with paradoxical activation)
     
     % BRAF dynamics (with vemurafenib inhibition)
-    dydt(24) = -kBRAF_eff*y(24) - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);
-    dydt(25) = kBRAF_eff*y(24) - kinbBraf*y(25) - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);
+    dydt(24) = -kBRAF_eff*y(24)*y(20) - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);
+    dydt(25) = kBRAF_eff*y(24)*y(20) - kinbBraf*y(25) - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);
     
     % BRAF-WT:CRAF dimer dynamics (y(62) = dimer complex)
     dydt(62) = kDimerForm*y(25)*y(22)*Vemurafenib - kDimerDissoc*y(62) - kPcrafDegrad*y(62)*y(36);
@@ -1421,7 +1422,23 @@ function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
     %   err - sum of squared residuals
     
     % Integrate ODE system at experimental time points
-    [T, Y] = ode45(@(t,y) Mapk_ODE(t, y, p), timeStamps_seconds, y0);
+    % Integrate ODE system at experimental time points
+    % Use ode15s for stiff systems
+    try
+        [T, Y] = ode15s(@(t,y) Mapk_ODE(t, y, p), timeStamps_seconds, y0);
+        
+        % Check if integration completed successfully
+        if length(T) ~= length(timeStamps_seconds)
+            % ODE solver failed to integrate up to the final time point
+            % Return a large penalty
+            err = 1e9;
+            return;
+        end
+    catch
+        % Solver crashed
+        err = 1e9;
+        return;
+    end
     
     % Extract model outputs (updated indices for new species order)
     m_pEGFR = Y(:,3);
