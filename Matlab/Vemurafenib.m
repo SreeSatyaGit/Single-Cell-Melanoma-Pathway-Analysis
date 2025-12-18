@@ -290,6 +290,7 @@ timeStamps_seconds = timeStamps_hours * 3600;  % Convert to seconds
 % Raw experimental data (not normalized)
 % Note: RAS_GTP removed from optimization as requested
 % expData_raw.RAS_GTP = [0.558156831, 0.61832384, 0.614585492, 0.708019641, 0.999240675, 1.0];
+expData_raw.panRAS = [0.839133594,0.833259289,0.919508516,1.240888235,1.582734859,1.468310571];
 expData_raw.pMEK = [1.75938884, 0.170160085, 0.095112609, 0.201000276, 0.219207054, 0.502831668];
 expData_raw.pERK = [2.903209735, 0.207867788, 0.303586121, 0.805254439, 1.408362153, 1.847606441];
 expData_raw.DUSP = [2.677161325, 2.782754577, 1.130758062, 0.395642757, 0.828575853, 0.916618219];
@@ -335,6 +336,16 @@ lb(62) = 0.01;     % IC50_vem
 ub(62) = 0.99;
 lb(63) = 0.5;      % Hill_n_vem
 ub(63) = 5.0;
+
+% Custom bounds for pMEK related parameters
+% Indices: 5 (k_phos), 17 (k_ERK_phos), 18 (k_degrad), 51 (BRAF_route), 52 (CRAF_route), 53 (KSR_route)
+lb([5, 17, 18, 51, 52, 53]) = 1e-9; 
+ub([5, 17, 18, 51, 52, 53]) = 1e-1; % Allow wider range for MEK dynamics
+
+% Custom bounds for p4EBP1 related parameters
+% Indices: 47 (k_4EBP1), 48 (k_4EBP1_dephos)
+lb([47, 48]) = 1e-8;
+ub([47, 48]) = 1e-1; % Allow faster phosphorylation/dephosphorylation
 
 % Optimization options - Enhanced for better convergence
 opts = optimoptions(@fmincon, ...
@@ -385,7 +396,7 @@ normit = @(v, mode) v ./ max(eps, ...
 
 % Extract and normalize model outputs
 model_outputs.pEGFR = normit(Y_all(:,3), 'max');
-% model_outputs.RAS_GTP = normit(Y_all(:,20), 'last');  % Removed from optimization (KRAS-GTP is now y(20))
+model_outputs.panRAS = normit(Y_all(:,16) + Y_all(:,18) + Y_all(:,20), 'last'); % panRAS = HRAS-GTP + NRAS-GTP + KRAS-GTP
 model_outputs.pCRAF = normit(Y_all(:,23), 'max');  % Updated index: pCRAF is now y(23)
 model_outputs.pMEK = normit(Y_all(:,27), 'first');  % Updated index: pMEK is now y(27)
 model_outputs.pERK = normit(Y_all(:,29), 'first');  % Updated index: pERK is now y(29)
@@ -396,7 +407,7 @@ model_outputs.p4EBP1 = normit(Y_all(:,59), 'max');  % Updated index: p4EBP1 is n
 % Calculate fit errors
 fit_errors = struct();
 fit_errors.pEGFR = abs(model_outputs.pEGFR - expData_norm.pEGFR(:));
-% fit_errors.RAS = abs(model_outputs.RAS_GTP - expData_norm.RAS_GTP(:));  % Removed from optimization
+fit_errors.panRAS = abs(model_outputs.panRAS - expData_norm.panRAS(:));
 fit_errors.pCRAF = abs(model_outputs.pCRAF - expData_norm.pCRAF(:));
 fit_errors.pMEK = abs(model_outputs.pMEK - expData_norm.pMEK(:));
 fit_errors.pERK = abs(model_outputs.pERK - expData_norm.pERK(:));
@@ -411,7 +422,7 @@ fprintf('═══════════════════════�
 fprintf('Total Fit Error: %.4f\n', errorOpt);
 fprintf('Individual Protein Errors (sum across all timepoints):\n');
 fprintf('  pEGFR: %.4f\n', sum(fit_errors.pEGFR));
-% fprintf('  RAS:   %.4f\n', sum(fit_errors.RAS));  % Removed from optimization
+fprintf('  panRAS: %.4f\n', sum(fit_errors.panRAS));
 fprintf('  pCRAF: %.4f\n', sum(fit_errors.pCRAF));
 fprintf('  pMEK:  %.4f\n', sum(fit_errors.pMEK));
 fprintf('  pERK:  %.4f\n', sum(fit_errors.pERK));
@@ -435,7 +446,7 @@ tFine_seconds = tFine_hours * 3600;
 
 % Normalize smooth model outputs
 model_smooth.pEGFR = normit(Y_fine(:,3), 'max');
-% model_smooth.RAS_GTP = normit(Y_fine(:,20), 'last');  % Removed from optimization
+model_smooth.panRAS = normit(Y_fine(:,16) + Y_fine(:,18) + Y_fine(:,20), 'last');
 model_smooth.pCRAF = normit(Y_fine(:,23), 'max');  % Updated index
 model_smooth.pMEK = normit(Y_fine(:,27), 'first');  % Updated index
 model_smooth.pERK = normit(Y_fine(:,29), 'first');  % Updated index
@@ -450,10 +461,10 @@ model_color = [0.2, 0.6, 0.2];   % Green for model fit
 % Create figure for all species
 figure('Name', 'Model Fit - All Species', 'Position', [50, 50, 1600, 1000]);
 
-species_to_plot = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1'};  % RAS_GTP removed from optimization
+species_to_plot = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1', 'panRAS'};
 % Mapping between display names and experimental data field names (handle case differences)
-expData_field_map = containers.Map({'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1'}, ...
-                                    {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4ebp1'});
+expData_field_map = containers.Map({'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1', 'panRAS'}, ...
+                                    {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4ebp1', 'panRAS'});
 
 for i = 1:length(species_to_plot)
     subplot(3, 3, i);
@@ -481,11 +492,11 @@ for i = 1:length(species_to_plot)
 end
 
 % Fit error summary plot
-subplot(3, 3, 8);
+subplot(3, 3, 9);
 total_errors = [sum(fit_errors.pEGFR), sum(fit_errors.pCRAF), ...
                 sum(fit_errors.pMEK), sum(fit_errors.pERK), sum(fit_errors.DUSP), ...
-                sum(fit_errors.pAKT), sum(fit_errors.p4EBP1)];
-protein_names = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1'};  % RAS removed from optimization
+                sum(fit_errors.pAKT), sum(fit_errors.p4EBP1), sum(fit_errors.panRAS)];
+protein_names = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1', 'panRAS'};
 bar(1:length(protein_names), total_errors, 'FaceColor', [0.2, 0.6, 0.8], 'EdgeColor', 'k');
 set(gca, 'XTick', 1:length(protein_names), 'XTickLabel', protein_names);
 ylabel('Total Fit Error', 'FontSize', 12);
@@ -1442,6 +1453,7 @@ function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
     
     % Extract model outputs (updated indices for new species order)
     m_pEGFR = Y(:,3);
+    m_panRAS = Y(:,16) + Y(:,18) + Y(:,20); % panRAS = HRAS-GTP + NRAS-GTP + KRAS-GTP
     m_pCRAF = Y(:,23);  % Updated: pCRAF is now y(23)
     m_pMEK = Y(:,27);   % Updated: pMEK is now y(27)
     m_pERK = Y(:,29);   % Updated: pERK is now y(29)
@@ -1455,6 +1467,7 @@ function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
     
     % Normalize model outputs
     m_pEGFR = norm(m_pEGFR, 'max');
+    m_panRAS = norm(m_panRAS, 'last');
     m_pMEK = norm(m_pMEK, 'first');
     m_pERK = norm(m_pERK, 'first');
     m_DUSP = norm(m_DUSP, 'max');
@@ -1464,17 +1477,18 @@ function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
     % m_RAS_GTP = norm(m_RAS_GTP, 'last');  % Removed from optimization
     
     % Calculate weighted sum of squared residuals
-    w = struct('EGFR', 1, 'MEK', 1, 'ERK', 3, 'DUSP', 3, 'CRAF', 1, 'AKT', 1, 'p4EBP1', 1);  % RAS removed, p4EBP1 added
+    % Calculate weighted sum of squared residuals
+    w = struct('EGFR', 1, 'MEK', 1, 'ERK', 3, 'DUSP', 3, 'CRAF', 1, 'AKT', 1, 'p4EBP1', 1, 'panRAS', 1);
     
     err = 0;
     err = err + w.EGFR * sum((m_pEGFR - expData_norm.pEGFR(:)).^2);
+    err = err + w.panRAS * sum((m_panRAS - expData_norm.panRAS(:)).^2);
     err = err + w.MEK * sum((m_pMEK - expData_norm.pMEK(:)).^2);
     err = err + w.ERK * sum((m_pERK - expData_norm.pERK(:)).^2);
     err = err + w.DUSP * sum((m_DUSP - expData_norm.DUSP(:)).^2);
     err = err + w.CRAF * sum((m_pCRAF - expData_norm.pCRAF(:)).^2);
     err = err + w.AKT * sum((m_pAKT - expData_norm.pAKT(:)).^2);
     err = err + w.p4EBP1 * sum((m_p4EBP1 - expData_norm.p4ebp1(:)).^2);
-    % err = err + w.RAS * sum((m_RAS_GTP - expData_norm.RAS_GTP(:)).^2);  % Removed from optimization
 end
 
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
