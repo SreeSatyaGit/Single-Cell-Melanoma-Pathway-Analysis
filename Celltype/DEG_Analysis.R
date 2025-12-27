@@ -88,14 +88,14 @@ for (trt in treatments) {
 
 cat("\n=== 2. CELL TYPE-SPECIFIC DEGs ===\n")
 
-cell_types <- unique(GSE164897$celltype)
+cell_types <- unique(GSE164897$seurat_clusters)
 celltype_degs <- list()
 
 for (ct in cell_types) {
   cat(paste("\nAnalyzing cell type:", ct, "\n"))
   
   # Subset to this cell type
-  ct_subset <- subset(GSE164897, celltype == ct)
+  ct_subset <- subset(GSE164897, seurat_clusters == ct)
   
   if (ncol(ct_subset) < 50) {
     cat(paste("  Skipping", ct, "- too few cells\n"))
@@ -130,7 +130,7 @@ for (ct in cell_types) {
       degs <- degs %>%
         rownames_to_column("gene") %>%
         mutate(
-          celltype = ct,
+          seurat_clusters = ct,
           treatment = trt,
           significant = p_val_adj < 0.05 & abs(avg_log2FC) > 0.5
         )
@@ -204,7 +204,7 @@ if ("pseudotime_clinical" %in% colnames(GSE164897@meta.data)) {
 
 cat("\n=== 4. CELL TYPE MARKER GENES ===\n")
 
-Idents(GSE164897) <- "celltype"
+Idents(GSE164897) <- "seurat_clusters"
 
 celltype_markers <- FindAllMarkers(
   GSE164897,
@@ -250,7 +250,7 @@ for (trt in names(treatment_degs)) {
     geom_text_repel(data = top_genes, aes(label = gene), 
                     size = 3, max.overlaps = 20, box.padding = 0.5) +
     scale_color_manual(values = c("FALSE" = "grey70", "TRUE" = "#E74C3C"),
-                      labels = c("Not Sig", "Significant")) +
+                       labels = c("Not Sig", "Significant")) +
     labs(title = paste("DEGs:", trt, "vs Untreated"),
          x = "Log2 Fold Change",
          y = "-Log10 Adjusted P-value",
@@ -372,9 +372,9 @@ if (length(top_markers) > 0) {
   expr_matrix <- GetAssayData(GSE164897, layer = "data")[top_markers, ]
   
   # Average by cell type
-  cell_types_ordered <- sort(unique(GSE164897$celltype))
+  cell_types_ordered <- sort(unique(GSE164897$seurat_clusters))
   avg_expr <- sapply(cell_types_ordered, function(ct) {
-    cells <- colnames(GSE164897)[GSE164897$celltype == ct]
+    cells <- colnames(GSE164897)[GSE164897$seurat_clusters == ct]
     rowMeans(expr_matrix[, cells, drop = FALSE])
   })
   
@@ -491,29 +491,3 @@ if (length(present_genes) > 0) {
             file.path("DEG_Results", "Known_Resistance_Genes_Expression.csv"))
 }
 
-# =============================================================================
-# 8. SAVE WORKSPACE
-# =============================================================================
-
-cat("\n=== 8. SAVING RESULTS ===\n")
-
-# Save all DEG results
-save(treatment_degs, celltype_degs, stage_degs, celltype_markers,
-     file = file.path("DEG_Results", "All_DEG_Results.RData"))
-
-# Save session info
-save_session_info(file.path("DEG_Results", "session_info_DEG.txt"))
-
-cat("\n=============================================================================\n")
-cat("✓ DIFFERENTIAL GENE EXPRESSION ANALYSIS COMPLETE\n")
-cat("=============================================================================\n")
-cat(paste("Results saved in:", file.path(getwd(), "DEG_Results"), "\n"))
-cat("\nKey outputs:\n")
-cat("  - DEG tables for each treatment comparison\n")
-cat("  - Cell type-specific DEGs\n")
-cat("  - Resistance stage DEGs\n")
-cat("  - Cell type marker genes\n")
-cat("  - Volcano plots\n")
-cat("  - Expression heatmaps\n")
-cat("  - Known resistance gene analysis\n")
-cat("=============================================================================\n\n")

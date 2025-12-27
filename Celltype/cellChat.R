@@ -38,7 +38,7 @@ if (!exists("GSE164897")) {
 }
 
 cat(paste("  Loaded:", ncol(GSE164897), "cells\n"))
-cat(paste("  Cell types:", length(unique(GSE164897$celltype)), "\n"))
+cat(paste("  Cell types:", length(unique(GSE164897$seurat_clusters)), "\n"))
 cat(paste("  Treatments:", length(unique(GSE164897$treatment)), "\n"))
 
 # =============================================================================
@@ -84,13 +84,18 @@ for (trt in treatments) {
   data.input <- GetAssayData(seurat_subset, layer = "data", assay = "RNA")
   
   # Create metadata
+  # CellChat doesn't like 0-based clusters, so we prefix with "C"
+  labels <- paste0("C", seurat_subset$seurat_clusters)
   meta <- data.frame(
-    labels = seurat_subset$celltype,
+    labels = factor(labels),
     row.names = colnames(seurat_subset)
   )
   
   # Create CellChat object
   cellchat <- createCellChat(object = data.input, meta = meta, group.by = "labels")
+  
+  # Set the identity to the labels we just created
+  cellchat <- setIdent(cellchat, ident.use = "labels")
   
   # Set database
   cellchat@DB <- CellChatDB.use
@@ -349,9 +354,7 @@ for (trt in c("Vemurafenib", "vem_cob", "vem_tram")) {
 
 cat("\n=== 8. CELL TYPE-SPECIFIC COMMUNICATION ===\n")
 
-# Focus on resistance-related cell types
-resistance_celltypes <- c("Invasive", "Resistant", "Hypoxic", "ImmuneEvasion")
-resistance_celltypes <- intersect(resistance_celltypes, unique(GSE164897$celltype))
+resistance_celltypes <- as.character(unique(paste0("C", GSE164897$seurat_clusters)))
 
 cat(paste("  Analyzing communication for:", 
           paste(resistance_celltypes, collapse = ", "), "\n"))
@@ -533,10 +536,14 @@ if ("pseudotime_clinical" %in% colnames(GSE164897@meta.data)) {
     cat("    Processing resistant cells...\n")
     
     data.input <- GetAssayData(resistant_cells, layer = "data", assay = "RNA")
-    meta <- data.frame(labels = resistant_cells$celltype,
+    
+    # Prefix clusters with C
+    labels <- paste0("C", resistant_cells$seurat_clusters)
+    meta <- data.frame(labels = factor(labels),
                        row.names = colnames(resistant_cells))
     
     cellchat_resistant <- createCellChat(object = data.input, meta = meta, group.by = "labels")
+    cellchat_resistant <- setIdent(cellchat_resistant, ident.use = "labels")
     cellchat_resistant@DB <- CellChatDB.use
     cellchat_resistant <- subsetData(cellchat_resistant)
     cellchat_resistant <- identifyOverExpressedGenes(cellchat_resistant)
@@ -566,10 +573,14 @@ if ("pseudotime_clinical" %in% colnames(GSE164897@meta.data)) {
     cat("    Processing sensitive cells...\n")
     
     data.input <- GetAssayData(sensitive_cells, layer = "data", assay = "RNA")
-    meta <- data.frame(labels = sensitive_cells$celltype,
+    
+    # Prefix clusters with C
+    labels <- paste0("C", sensitive_cells$seurat_clusters)
+    meta <- data.frame(labels = factor(labels),
                        row.names = colnames(sensitive_cells))
     
     cellchat_sensitive <- createCellChat(object = data.input, meta = meta, group.by = "labels")
+    cellchat_sensitive <- setIdent(cellchat_sensitive, ident.use = "labels")
     cellchat_sensitive@DB <- CellChatDB.use
     cellchat_sensitive <- subsetData(cellchat_sensitive)
     cellchat_sensitive <- identifyOverExpressedGenes(cellchat_sensitive)

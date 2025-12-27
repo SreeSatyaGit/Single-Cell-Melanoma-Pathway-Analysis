@@ -118,15 +118,16 @@ params.KSR.k_MEK_route = 3e-6;      % pKSR → MEK phosphorylation (min^-1)
 % ----------------------------------------------------------------------------
 % 1.11 Trametinib (MEK Inhibitor) Parameters
 % ----------------------------------------------------------------------------
-params.Trametinib.conc = 1e-6;       % Trametinib concentration
+params.Trametinib.conc = 1e-6;    % Trametinib concentration
 params.Trametinib.Ki_RAF = 5e-1;     % Ki for RAF→MEK inhibition
 params.Trametinib.Ki_KSR = 5e-12;    % Ki for KSR→MEK inhibition
 params.Trametinib.Hill_n = 2;        % Hill coefficient
+params.Trametinib.K_displace = 0.1;  % Displacement constant for RAS/RAF displacing Tram from KSR
 
 % ----------------------------------------------------------------------------
 % 1.12 Vemurafenib and Paradoxical Activation Parameters
 % ----------------------------------------------------------------------------
-params.Vemurafenib.conc = 1.0;           % Vemurafenib concentration (normalized [0,1])
+params.Vemurafenib.conc = 0.0;           % Vemurafenib concentration (normalized [0,1])
 params.Vemurafenib.IC50 = 0.4;           % IC50 for BRAF^V600E inhibition (normalized [0,1])
 params.Vemurafenib.Hill_n = 1.5;         % Hill coefficient for inhibition
 params.Paradox.k_dimer_form = 6e-6;      % Dimer formation rate (BRAF-WT* + CRAF → dimer)
@@ -182,14 +183,14 @@ params_vector = [
     p.mTOR.kb1, p.mTOR.k43b1, p.mTOR.k_4EBP1, p.mTOR.k_4EBP1_dephos, ...  % 4EBP1 phosphorylation and dephosphorylation
     p.KSR.k_phos, p.KSR.k_dephos, ...
     p.MEK.k_BRAF_route, p.MEK.k_CRAF_route, p.KSR.k_MEK_route, ...
-    p.Trametinib.conc, p.Trametinib.Ki_RAF, p.Trametinib.Ki_KSR, p.Trametinib.Hill_n, ...
+    p.Trametinib.conc, p.Trametinib.Ki_RAF, p.Trametinib.Ki_KSR, p.Trametinib.Hill_n, p.Trametinib.K_displace, ...
     p.Vemurafenib.conc, p.Paradox.k_dimer_form, p.Paradox.k_dimer_dissoc, ...
     p.Paradox.gamma, p.Vemurafenib.IC50, p.Vemurafenib.Hill_n
 ];
 
 % Verify parameter vector length
-if length(params_vector) ~= 63
-    error('Parameter vector has %d elements, expected 63!', length(params_vector));
+if length(params_vector) ~= 64
+    error('Parameter vector has %d elements, expected 64!', length(params_vector));
 end
 
 fprintf('Parameters organized by pathway modules. Total: %d parameters.\n\n', length(params_vector));
@@ -344,6 +345,12 @@ frebp1_indices = [45, 46, 47, 48];
 lb(frebp1_indices) = 1e-10;
 ub(frebp1_indices) = 1e-2; 
 
+% Custom bounds for MEK related parameters (Indices: 5, 17, 18, 51, 52)
+% 5: k_phos, 17: k_ERK_phos, 18: k_degrad, 51: k_BRAF_route, 52: k_CRAF_route
+mek_indices = [5, 17, 18, 51, 52];
+lb(mek_indices) = 1e-8;
+ub(mek_indices) = 1e-1; 
+
 % Vemurafenib parameters (Concentration, IC50, Hill coefficient)
 lb(58) = 0.0;      % Vemurafenib concentration [0, 1]
 ub(58) = 1.0; 
@@ -351,6 +358,10 @@ lb(62) = 0.01;     % IC50_vem
 ub(62) = 0.99;
 lb(63) = 0.5;      % Hill_n_vem
 ub(63) = 5.0;
+
+% New Parameter: K_displace for Trametinib resistance
+lb(58) = 1e-4;     % K_displace (concentration scale)
+ub(58) = 10.0;     % Allow meaningful range
 
 % Optimization options - Enhanced for better convergence
 opts = optimoptions(@fmincon, ...
@@ -1296,9 +1307,9 @@ function dydt = Mapk_ODE(t, y, p)
     kb1 = p(45); k43b1 = p(46); k4ebp1 = p(47); k_4EBP1_dephos = p(48);  % 4EBP1 parameters
     kKSRphos = p(49); kKSRdephos = p(50);
     kMekByBraf = p(51); kMekByCraf = p(52); kMekByKSR = p(53);
-    Tram = p(54); K_tram_RAF = p(55); K_tram_KSR = p(56); n_tram = p(57);
-    Vemurafenib = p(58); kDimerForm = p(59); kDimerDissoc = p(60);
-    kParadoxCRAF = p(61); IC50_vem = p(62); Hill_n_vem = p(63);
+    Tram = p(54); K_tram_RAF = p(55); K_tram_KSR = p(56); n_tram = p(57); K_displace = p(58);
+    Vemurafenib = p(59); kDimerForm = p(60); kDimerDissoc = p(61);
+    kParadoxCRAF = p(62); IC50_vem = p(63); Hill_n_vem = p(64);
     
     % Initialize derivatives
     dydt = zeros(62, 1);
@@ -1371,8 +1382,18 @@ function dydt = Mapk_ODE(t, y, p)
     % MODULE 5: MEK PHOSPHORYLATION
     % ========================================================================
     % Trametinib inhibition (Hill modifiers)
+    % Trametinib inserts into KSR1 pocket but is displaced by upstream RAS/RAF accumulation
+    
+    panRAS_active = y(16) + y(18) + y(20); % HRAS-GTP + NRAS-GTP + KRAS-GTP
+    CRAF_total = y(22) + y(23);           % CRAF + pCRAF
+    BRAF_total = y(24) + y(25);           % BRAF + BRAF^P
+    
+    % Displacement Factor: Higher upstream load increases effective Ki (reduced inhibition)
+    displacement_load = panRAS_active + CRAF_total + BRAF_total; 
+    K_tram_KSR_eff = K_tram_KSR * (1 + displacement_load / K_displace);
+    
     f_tram_RAF = 1 / (1 + (Tram / K_tram_RAF)^n_tram);
-    f_tram_KSR = 1 / (1 + (Tram / K_tram_KSR)^n_tram);
+    f_tram_KSR = 1 / (1 + (Tram / K_tram_KSR_eff)^n_tram);
 
     % ========================================================================
     % MODULE 5: MEK PHOSPHORYLATION

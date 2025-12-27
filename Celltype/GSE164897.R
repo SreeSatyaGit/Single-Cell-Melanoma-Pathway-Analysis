@@ -263,12 +263,12 @@ DimPlot(GSE164897, reduction = "umap.unintegrated", group.by = c("orig.ident", "
 
 
 GSE164897 <- IntegrateLayers(object = GSE164897, method = CCAIntegration, orig.reduction = "pca", new.reduction = "integrated.cca",
-                               verbose = FALSE)
+                             verbose = FALSE)
 GSE164897 <- IntegrateLayers(object = GSE164897, method = CCAIntegration, 
-                                    orig.reduction = "pca", new.reduction = "integrated.cca",
-                                    assay = "RNA",
-                                    verbose = FALSE)
-  
+                             orig.reduction = "pca", new.reduction = "integrated.cca",
+                             assay = "RNA",
+                             verbose = FALSE)
+
 
 # re-join layers after integration
 GSE164897[["RNA"]] <- JoinLayers(GSE164897[["RNA"]])
@@ -280,21 +280,42 @@ GSE164897 <- FindClusters(GSE164897, resolution = 1)
 GSE164897 <- RunUMAP(GSE164897, dims = 1:30, reduction = "integrated.cca")
 
 # Visualization (treatment column already added during downsampling)
-DimPlot(GSE164897, reduction = "umap", group.by = c("seurat_clusters","treatment"))
+DimPlot(GSE164897, reduction = "umap", group.by = c("C_State_Annotation"), split.by = "treatment")
 
-# ============================================================================
-# SIMPLE CELL TYPE ASSIGNMENT (Using Seurat Clusters)
-# ============================================================================
+# --- Quantification of Cluster Percentages ---
 
-message("\n=== Assigning Seurat Clusters as Cell Types ===")
-GSE164897$celltype <- GSE164897$seurat_clusters
-print(table(GSE164897$celltype))
+# Calculate the number of cells per cluster for each treatment
+cluster_counts <- table(GSE164897$C_State_Annotation, GSE164897$treatment)
 
-# Visualization
-p_cluster <- DimPlot(GSE164897, reduction = "umap", group.by = "celltype", label = TRUE) +
-  ggtitle("Cell Types (Clusters)")
-print(p_cluster)
+# Convert to percentages (column-wise: % of treatment group)
+cluster_percentages <- prop.table(cluster_counts, margin = 2) * 100
 
-message("Cell types stored in: GSE164897$celltype")
+# 1. Quantify and show percentage of each cluster for the 4th panel
+# Note: The 4th panel corresponds to the 4th level of the treatment factor
+treatments <- levels(GSE164897$treatment)
+fourth_panel_treatment <- treatments[4] # Usually "vem_tram" if levels are standard, or user's "all vem"
+
+print(paste0("--- Cluster breakdown for 4th panel (", fourth_panel_treatment, ") ---"))
+print(round(cluster_percentages[, 4], 2))
+
+# 2. Compare percentages across the 4 treatments
+print("--- Comparison of Cluster Percentages across all treatments ---")
+print(round(cluster_percentages, 2))
+
+# Visualization of the quantification
+library(ggplot2)
+
+# Convert to dataframe for plotting
+df_percentages <- as.data.frame(cluster_percentages)
+colnames(df_percentages) <- c("Cluster", "Treatment", "Percentage")
+
+# Stacked Bar Plot
+p_quant <- ggplot(df_percentages, aes(x = Treatment, y = Percentage, fill = Cluster)) +
+  geom_bar(stat = "identity") +
+  theme_minimal() +
+  labs(title = "Cluster Composition by Treatment", y = "Percentage (%)") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(p_quant)
 
 

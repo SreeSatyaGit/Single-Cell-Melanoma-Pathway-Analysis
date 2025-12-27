@@ -30,21 +30,15 @@ split_treatment <- SplitObject(GSE164897, split.by = "treatment")
 # Initialize lists
 Pvem_tram <- list(); Pvem_cob <- list(); Pvem <- list()
 
-# =============================================================================
-# STEP 1: RUN SCPA ANALYSIS ACROSS CELL STATES (CLUSTERS)
-# =============================================================================
-if (!"celltype" %in% colnames(GSE164897@meta.data)) {
-  # Fallback if annotation script wasn't run
-  GSE164897$celltype <- GSE164897$seurat_clusters
-}
 
-cell_types <- unique(GSE164897$celltype)
-print(paste("Processing", length(cell_types), "cell types (clusters)..."))
 
-for (i in cell_types) {
+C_State_Annotations <- unique(GSE164897$C_State_Annotation)
+print(paste("Processing", length(C_State_Annotations), "cell types (clusters)..."))
+
+for (i in C_State_Annotations) {
   print(paste("Analyzing cluster:", i))
   
-  cluster_obj <- subset(GSE164897, celltype == i)
+  cluster_obj <- subset(GSE164897, C_State_Annotation == i)
   
   if (ncol(cluster_obj) < 5) {
     print(paste("Skipping cluster", i, "- too few cells (total < 5)"))
@@ -174,53 +168,13 @@ p_crosstalk_scatter <- ggplot(crosstalk_wide, aes_string(x = mapk_col, y = pi3k_
 print(p_mech_bar)
 print(p_crosstalk_scatter)
 
-# Assemble Figure 1 with these narrative elements
-cat("Assembling Final Manuscript Figure 1...\n")
-library(patchwork)
-library(ggplotify)
 
-# Convert ComplexHeatmap to grob
-p_heatmap_grob <- grid.grabExpr(draw(ht))
-
-# Layout: 
-# A | B
-# C C
-# D D
-# E E
-layout_design <- "
-AAABBB
-CCCCCC
-CCCCCC
-DDDDDD
-DDDDDD
-EEEEEE
-EEEEEE
-"
-
-# Note: Using p_mech_bar (Panel D) and p_crosstalk_scatter (Panel E)
-fig1 <- (p_umap_tx | p_umap_ct) / 
-  as.ggplot(p_heatmap_grob) / 
-  p_mech_bar /
-  p_crosstalk_scatter + 
-  plot_layout(heights = c(1, 2, 1.2, 1.5)) +
-  plot_annotation(tag_levels = 'A', 
-                  title = "Figure 1: MAPK-PI3K Crosstalk Drives Resistance to BRAF+MEK Inhibition",
-                  subtitle = "Dual inhibition of BRAF and PI3K works better than dual BRAF and MEK inhibition")
-
-ggsave("Figure1_MAPK_PI3K_Crosstalk_Complete.pdf", fig1, width = 14, height = 24)
-cat("✓ Use 'Figure1_MAPK_PI3K_Crosstalk_Complete.pdf' for your manuscript.\n")
 
 # =============================================================================
 # FIGURE 1 ASSEMBLY PREP
 # =============================================================================
 
-# 1. Generate Context Map (UMAP)
-cat("Generating UMAP context plots...\n")
-p_umap_tx <- DimPlot(GSE164897, group.by = "treatment", cols = c("untreated" = "grey70", "Vemurafenib" = "#E74C3C", "vem_cob" = "#3498DB", "vem_tram" = "#2ECC71"), pt.size = 0.5) +
-  ggtitle("Treatment Groups") + theme_void() + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
 
-p_umap_ct <- DimPlot(GSE164897, group.by = "celltype", label = TRUE, label.size = 3, repel = TRUE) +
-  ggtitle("Cell Types") + theme_void() + theme(plot.title = element_text(hjust = 0.5, face = "bold"), legend.position = "none")
 
 
 
@@ -278,15 +232,15 @@ mat_subset <- mat[top_pathways, , drop = FALSE]
 col_names <- colnames(mat)
 
 treatment <- sapply(strsplit(col_names, "_"), `[`, 1)
-cell_type <- sapply(strsplit(col_names, "_"), `[`, 2)
+C_State_Annotation <- sapply(strsplit(col_names, "_"), `[`, 2)
 
-n_types <- length(unique(cell_types))
-type_colors <- setNames(rainbow(n_types), unique(cell_types))
+n_types <- length(unique(C_State_Annotations))
+type_colors <- setNames(rainbow(n_types), unique(C_State_Annotations))
 treatment_colors <- c("Vem" = "#E74C3C", "Vemcob" = "#3498DB", "Vemtram" = "#2ECC71")
 
 col_an <- HeatmapAnnotation(
   Treatment = treatment,
-  CellType = cell_type,
+  CellType = C_State_Annotation,
   col = list(Treatment = treatment_colors, CellType = type_colors),
   gp = gpar(col = "white", lwd = 0.05),
   simple_anno_size = unit(3, "mm")
@@ -323,6 +277,45 @@ p_var <- apply(mat, 1, var) %>%
         panel.background = element_blank(),
         panel.border = element_rect(fill = NA, colour = "black"))
 print(p_var)
+
+
+# =============================================================================
+# FIGURE 1 ASSEMBLY PREP
+# =============================================================================
+
+# 1. Generate Context Map (UMAP)
+cat("Generating UMAP context plots...\n")
+p_umap_tx <- DimPlot(GSE164897, group.by = "treatment", cols = c("untreated" = "grey70", "Vemurafenib" = "#E74C3C", "vem_cob" = "#3498DB", "vem_tram" = "#2ECC71"), pt.size = 0.5) +
+  ggtitle("Treatment Groups") + theme_void() + theme(plot.title = element_text(hjust = 0.5, face = "bold"))
+
+p_umap_ct <- DimPlot(GSE164897, group.by = "celltype", label = TRUE, label.size = 3, repel = TRUE) +
+  ggtitle("Cell Types") + theme_void() + theme(plot.title = element_text(hjust = 0.5, face = "bold"), legend.position = "none")
+
+
+# =============================================================================
+# ASSEMBLE FIGURE 1
+# =============================================================================
+
+# Assemble Figure 1 with these narrative elements
+cat("Assembling Final Manuscript Figure 1...\n")
+library(patchwork)
+library(ggplotify)
+
+# Convert ComplexHeatmap to grob
+p_heatmap_grob <- grid.grabExpr(draw(ht))
+
+# Note: Using p_mech_bar (Panel D) and p_crosstalk_scatter (Panel E)
+fig1 <- (p_umap_tx | p_umap_ct) / 
+  as.ggplot(p_heatmap_grob) / 
+  p_mech_bar /
+  p_crosstalk_scatter + 
+  plot_layout(heights = c(1, 2, 1.2, 1.5)) +
+  plot_annotation(tag_levels = 'A', 
+                  title = "Figure 1: MAPK-PI3K Crosstalk Drives Resistance to BRAF+MEK Inhibition",
+                  subtitle = "Dual inhibition of BRAF and PI3K works better than dual BRAF and MEK inhibition")
+
+ggsave("Figure1_MAPK_PI3K_Crosstalk_Complete.pdf", fig1, width = 14, height = 24)
+cat("✓ Use 'Figure1_MAPK_PI3K_Crosstalk_Complete.pdf' for your manuscript.\n")
 
 
 
