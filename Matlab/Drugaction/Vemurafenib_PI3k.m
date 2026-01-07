@@ -27,7 +27,7 @@ close all;
 clc;
 
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
-fprintf('   MAPK/PI3K PATHWAY MODEL WITH VEMURAFENIB\n');
+fprintf('   MAPK/PI3K PATHWAY MODEL WITH VEMURAFENIB + PI3K INHIBITOR\n');
 fprintf('   Paradoxical Activation Included\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
 
@@ -295,103 +295,69 @@ fprintf('Loading experimental data...\n');
 timeStamps_hours = [0, 1, 4, 8, 24, 48];
 timeStamps_seconds = timeStamps_hours * 3600;  % Convert to seconds
 
-% Raw experimental data (not normalized)
-% Note: RAS_GTP removed from optimization as requested
-% expData_raw.RAS_GTP = [0.558156831, 0.61832384, 0.614585492, 0.708019641, 0.999240675, 1.0];
-expData_raw.panRAS = [0.839133594,0.833259289,0.919508516,1.240888235,1.582734859,1.468310571];
-expData_raw.pMEK = [1.75938884, 0.170160085, 0.095112609, 0.201000276, 0.219207054, 0.502831668];
-expData_raw.pERK = [2.903209735, 0.207867788, 0.303586121, 0.805254439, 1.408362153, 1.847606441];
-expData_raw.DUSP = [2.677161325, 2.782754577, 1.130758062, 0.395642757, 0.828575853, 0.916618219];
-expData_raw.pEGFR = [0.291928893, 0.392400458, 0.265016688, 0.394238749, 0.006158316, 0.008115099];
-expData_raw.pCRAF = [0.366397596, 0.537106733, 0.465541704, 0.586732657, 1.102322681, 0.269181259];
-expData_raw.pAKT = [0.513544148, 0.613178403, 1.03451863, 1.113391047, 0.535242724, 0.538273551];
-expData_raw.p4ebp1 = [1.002468056,1.276793699,1.252681407,1.707504483,1.271216967,0.61389625];
-
-% Normalize experimental data to [0, 1] using min-max normalization
-species_names = fieldnames(expData_raw);
-expData_norm = struct();
-for i = 1:length(species_names)
-    data = expData_raw.(species_names{i});
-    data_min = min(data);
-    data_max = max(data);
-    expData_norm.(species_names{i}) = (data - data_min) / (data_max - data_min + eps);
-end
-
-fprintf('Experimental data normalized. Time points: %d\n\n', length(timeStamps_hours));
-
 %% ============================================================================
-% SECTION 4: PARAMETER OPTIMIZATION SETUP
+%% ============================================================================
+% SECTION 4: PREDICTION SETUP (NO OPTIMIZATION)
 % ============================================================================
 
-fprintf('Setting up parameter optimization...\n');
+fprintf('Setting up Prediction using Trained Parameters...\n');
 
-% Initial parameter guess (from params_vector)
-params0 = params_vector;
+% 1. LOAD TRAINED PARAMETERS
+trained_file = 'trained_Vem_params.mat'; 
 
-% Parameter bounds
+if exist(trained_file, 'file')
+    fprintf('Loading trained parameters from: %s\n', trained_file);
+    loaded_data = load(trained_file);
+    base_params = loaded_data.optimizedParams;
+    
+    % Ensure parameter vector alignment
+    % We use the trained parameters for the core model (1-63)
+    % And default parameters for the new PI3K module (64-66)
+    params0 = params_vector; % Start with default structure (contains PI3K defaults)
+    
+    common_length = min(length(base_params), length(params0));
+    % If base_params is shorter (e.g. 63 params) and params0 is longer (66 params),
+    % this preserves the new default parameters at the end.
+    params0(1:common_length) = base_params(1:common_length);
+    
+    fprintf('Merged trained parameters with default PI3K parameters.\n');
+else
+    warning('Trained parameter file not found at %s! Using default initial guesses.', trained_file);
+    params0 = params_vector;
+end
+
 num_params = length(params0);
 
-% RELAXED GLOBAL BOUNDS to improve fit accuracy
-% Previous bounds [1e-8, 1e-4] were too restrictive for enzymatic rates (e.g., k_cat)
-lb = 1e-12 * ones(num_params, 1);
-ub = 1e-3 * ones(num_params, 1);  % Increased to allow faster rates
+% 2. DEFINE PREDICTION PARAMETERS
+% We are NOT optimizing. We are using the loaded + default parameters.
+% Ensure Drug Concentrations are fixed for Prediction Scenario
+params0(58) = 1.0; % Vemurafenib Concentration (Fixed)
+params0(64) = 1.0; % PI3K Inhibitor Concentration (Fixed)
 
-% Specific constraints for physical parameters (Concentrations, Hill coeffs)
-% Vemurafenib parameters (Concentration, IC50, Hill coefficient)
-lb(58) = 0.0;      % Vemurafenib concentration [0, 1]
-ub(58) = 1.0; 
-lb(62) = 0.01;     % IC50_vem
-ub(62) = 0.99;
-lb(63) = 0.5;      % Hill_n_vem
-ub(63) = 5.0;
+% Set optimizedParams directly for simulation
+optimizedParams = params0;
 
-% PI3K Inhibitor parameters
-lb(64) = 0.0;      % PI3K inhibitor concentration [0, 1]
-ub(64) = 1.0;
-lb(65) = 1e-4;     % IC50_PI3K
-ub(65) = 1.0;
-lb(66) = 0.5;      % Hill_n_PI3K
-ub(66) = 5.0;
-
-% Custom bounds for pMEK related parameters
-% Indices: 5 (k_phos), 17 (k_ERK_phos), 18 (k_degrad), 51 (BRAF_route), 52 (CRAF_route), 53 (KSR_route)
-lb([5, 17, 18, 51, 52, 53]) = 1e-9; 
-ub([5, 17, 18, 51, 52, 53]) = 1e-1; % Allow wider range for MEK dynamics
-
-% Custom bounds for p4EBP1 related parameters
-% Indices: 47 (k_4EBP1), 48 (k_4EBP1_dephos)
-lb([47, 48]) = 1e-8;
-ub([47, 48]) = 1e-1; % Allow faster phosphorylation/dephosphorylation
-
-% Optimization options - Enhanced for better convergence
-opts = optimoptions(@fmincon, ...
-    'Algorithm', 'sqp', ...
-    'Display', 'iter', ...
-    'MaxIterations', 2000, ...      % Increased from 150 to ensure convergence
-    'MaxFunctionEvaluations', 100000, ... % Sufficient evaluations
-    'FunctionTolerance', 1e-7, ...  % Tighter tolerance
-    'StepTolerance', 1e-9);
-
-fprintf('Optimization setup complete. Parameters to optimize: %d\n\n', num_params);
+fprintf('Prediction setup complete. Parameters set: %d\n', num_params);
+fprintf('Vemurafenib Conc: %.2f\n', optimizedParams(58));
+fprintf('PI3K Inhibitor Conc: %.2f\n\n', optimizedParams(64));
 
 %% ============================================================================
-% SECTION 5: RUN PARAMETER OPTIMIZATION
+% SECTION 5: SKIP OPTIMIZATION (PREDICTION ONLY)
 % ============================================================================
 
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
-fprintf('   RUNNING PARAMETER OPTIMIZATION\n');
+fprintf('   RUNNING PREDICTION (SKIPPING OPTIMIZATION)\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
 
-tic;
-[optimizedParams, errorOpt] = fmincon( ...
-    @(p) objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0), ...
-    params0, [], [], [], [], lb, ub, [], opts);
-optimization_time = toc;
+% (Validation Error Calculation removed - Pure Prediction Mode)
+errorOpt = 0; % No experimental data to compare against
 
-fprintf('\nOptimization completed in %.2f seconds.\n', optimization_time);
-fprintf('Optimized Parameters:\n');
-disp(optimizedParams);
-fprintf('Minimum Fit Error: %.6e\n\n', errorOpt);
+optimization_time = 0;
+
+fprintf('Prediction completed.\n');
+fprintf('Prediction Parameters (Preview):\n');
+disp(optimizedParams(64:end)); % Display new params
+
 
 %% ============================================================================
 % SECTION 6: SIMULATE WITH OPTIMIZED PARAMETERS
@@ -420,32 +386,14 @@ model_outputs.DUSP = normit(Y_all(:,31), 'max');  % Updated index: DUSP is now y
 model_outputs.pAKT = normit(Y_all(:,53), 'max');  % Updated index: pAKT is now y(53)
 model_outputs.p4EBP1 = normit(Y_all(:,59), 'max');  % Updated index: p4EBP1 is now y(59)
 
-% Calculate fit errors
-fit_errors = struct();
-fit_errors.pEGFR = abs(model_outputs.pEGFR - expData_norm.pEGFR(:));
-fit_errors.panRAS = abs(model_outputs.panRAS - expData_norm.panRAS(:));
-fit_errors.pCRAF = abs(model_outputs.pCRAF - expData_norm.pCRAF(:));
-fit_errors.pMEK = abs(model_outputs.pMEK - expData_norm.pMEK(:));
-fit_errors.pERK = abs(model_outputs.pERK - expData_norm.pERK(:));
-fit_errors.DUSP = abs(model_outputs.DUSP - expData_norm.DUSP(:));
-fit_errors.pAKT = abs(model_outputs.pAKT - expData_norm.pAKT(:));
-fit_errors.p4EBP1 = abs(model_outputs.p4EBP1 - expData_norm.p4ebp1(:));
+% Calculate model outputs (no error calculation)
+fprintf('Calculating model outputs for visualization...\n');
 
-% Display fit results
+% Display fit results (Skipped - No Data)
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
-fprintf('   MODEL FIT RESULTS\n');
+fprintf('   MODEL PREDICTION RESULTS\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
-fprintf('Total Fit Error: %.4f\n', errorOpt);
-fprintf('Individual Protein Errors (sum across all timepoints):\n');
-fprintf('  pEGFR: %.4f\n', sum(fit_errors.pEGFR));
-fprintf('  panRAS: %.4f\n', sum(fit_errors.panRAS));
-fprintf('  pCRAF: %.4f\n', sum(fit_errors.pCRAF));
-fprintf('  pMEK:  %.4f\n', sum(fit_errors.pMEK));
-fprintf('  pERK:  %.4f\n', sum(fit_errors.pERK));
-fprintf('  DUSP:  %.4f\n', sum(fit_errors.DUSP));
-fprintf('  pAKT:  %.4f\n', sum(fit_errors.pAKT));
-fprintf('  p4EBP1: %.4f\n', sum(fit_errors.p4EBP1));
-fprintf('\n');
+fprintf('Simulation completed. Generating plots...\n\n');
 
 %% ============================================================================
 % SECTION 7: VISUALIZATION
@@ -487,19 +435,16 @@ for i = 1:length(species_to_plot)
     species = species_to_plot{i};
     exp_field = expData_field_map(species);  % Get correct field name for experimental data
     
-    % Plot model fit
+    % Plot model prediction only
     plot(tFine_hours, model_smooth.(species), '-', 'Color', model_color, ...
-         'LineWidth', 3, 'DisplayName', 'Model Fit');
+         'LineWidth', 3, 'DisplayName', 'Model Prediction');
     hold on;
     
-    % Plot experimental data
-    plot(timeStamps_hours, expData_norm.(exp_field), 'o', 'Color', data_color, ...
-         'MarkerSize', 10, 'MarkerFaceColor', data_color, 'LineWidth', 2, ...
-         'DisplayName', 'Experimental');
+    % (Experimental data plot removed)
     
     xlabel('Time (hours)', 'FontSize', 12);
     ylabel(species, 'FontSize', 12);
-    title(sprintf('%s Model Fit', species), 'FontSize', 14, 'FontWeight', 'bold');
+    title(sprintf('%s Prediction', species), 'FontSize', 14, 'FontWeight', 'bold');
     legend('Location', 'best', 'FontSize', 11);
     grid on;
     xlim([0, 50]);
@@ -507,21 +452,10 @@ for i = 1:length(species_to_plot)
     hold off;
 end
 
-% Fit error summary plot
-subplot(3, 3, 9);
-total_errors = [sum(fit_errors.pEGFR), sum(fit_errors.pCRAF), ...
-                sum(fit_errors.pMEK), sum(fit_errors.pERK), sum(fit_errors.DUSP), ...
-                sum(fit_errors.pAKT), sum(fit_errors.p4EBP1), sum(fit_errors.panRAS)];
-protein_names = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1', 'panRAS'};
-bar(1:length(protein_names), total_errors, 'FaceColor', [0.2, 0.6, 0.8], 'EdgeColor', 'k');
-set(gca, 'XTick', 1:length(protein_names), 'XTickLabel', protein_names);
-ylabel('Total Fit Error', 'FontSize', 12);
-title('Fit Errors by Protein', 'FontSize', 14, 'FontWeight', 'bold');
-xtickangle(45);
-grid on;
-set(gca, 'FontSize', 11);
+% Summary plot removed (no errors to plot)
 
-sgtitle('MAPK/PI3K Pathway Model Fit Results', 'FontSize', 16, 'FontWeight', 'bold');
+
+sgtitle('MAPK/PI3K Pathway Model Fit Results (Vemurafenib + PI3K Inhibitor)', 'FontSize', 16, 'FontWeight', 'bold');
 
 %% ============================================================================
 % PARADOXICAL ACTIVATION VISUALIZATION
@@ -833,14 +767,25 @@ set(gca, 'FontSize', 10);
 % Plot 6: PI3K Recruitment Rate
 subplot(3, 3, 6);
 k_PI3K_recruit = optimizedParams(39);
-PI3K_recruitment_rate = k_PI3K_recruit * new_species.total_p85_RTK .* new_species.PI3K_inactive;
+
+% Calculate Inhibition Term
+PI3K_inhib_conc = optimizedParams(64);
+IC50_PI3K = optimizedParams(65);
+Hill_n_PI3K = optimizedParams(66);
+term_PI3K = (IC50_PI3K^Hill_n_PI3K) / (IC50_PI3K^Hill_n_PI3K + PI3K_inhib_conc^Hill_n_PI3K + eps);
+
+% Effective Recruitment Rate
+k_PI3K_recruit_eff = k_PI3K_recruit * term_PI3K;
+PI3K_recruitment_rate = k_PI3K_recruit_eff * new_species.total_p85_RTK .* new_species.PI3K_inactive;
+
+% Normalize
 PI3K_recruitment_rate_norm = PI3K_recruitment_rate ./ (max(PI3K_recruitment_rate) + eps);
 
 plot(tFine_hours, PI3K_recruitment_rate_norm, '-', 'Color', [0.2, 0.8, 0.2], ...
      'LineWidth', 2.5, 'DisplayName', 'PI3K Recruitment Rate');
 xlabel('Time (hours)', 'FontSize', 11);
 ylabel('Recruitment Rate (normalized)', 'FontSize', 11);
-title('PI3K Recruitment Rate by p85:RTK', 'FontSize', 13, 'FontWeight', 'bold');
+title({ 'PI3K Recruitment Rate by p85:RTK'; sprintf('(Peak Rate: %.2e)', max(PI3K_recruitment_rate)) }, 'FontSize', 12, 'FontWeight', 'bold');
 legend('Location', 'best', 'FontSize', 10);
 grid on;
 set(gca, 'FontSize', 10);

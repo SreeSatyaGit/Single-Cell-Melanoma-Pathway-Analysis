@@ -27,7 +27,7 @@ close all;
 clc;
 
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
-fprintf('   MAPK/PI3K PATHWAY MODEL WITH VEMURAFENIB & TRAMETINIB\n');
+fprintf('   MAPK/PI3K PATHWAY MODEL WITH VEMURAFENIB\n');
 fprintf('   Paradoxical Activation Included\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
 
@@ -290,14 +290,14 @@ timeStamps_seconds = timeStamps_hours * 3600;  % Convert to seconds
 % Raw experimental data (not normalized)
 % Note: RAS_GTP removed from optimization as requested
 % expData_raw.RAS_GTP = [0.558156831, 0.61832384, 0.614585492, 0.708019641, 0.999240675, 1.0];
-expData_raw.panRAS = [0.967381946,1.017734223,1.0307083,1.077694732,1.298017607,1.573403892];
-expData_raw.pMEK = [1.936660577,0.029380652,0.012873835,0.03390921,0.095155796,0.944936578];
-expData_raw.pERK = [3.273353557,0.075717978,0.011570416,0.00642985,0.041863585,0.91621491];
-expData_raw.DUSP = [2.854207662,2.842703936,1.163746208,0.332720449,0.030434242,0.094073888];
-expData_raw.pEGFR = [0.222379739,0.622877159,0.629217784,0.533530834,0.022513609,0.010036399];
-expData_raw.pCRAF = [0.234376572,0.641878896,0.567434544,0.406320223,0.582899195,0.25113447];
-expData_raw.pAKT = [0.469313143,0.685538076,0.833270586,0.800984924,0.399127795,0.178143584];
-expData_raw.p4ebp1 = [0.793559668,1.176099875,1.210864904,1.415698564,0.858543042,0.167293554];
+expData_raw.panRAS = [0.839133594,0.833259289,0.919508516,1.240888235,1.582734859,1.468310571];
+expData_raw.pMEK = [1.75938884, 0.170160085, 0.095112609, 0.201000276, 0.219207054, 0.502831668];
+expData_raw.pERK = [2.903209735, 0.207867788, 0.303586121, 0.805254439, 1.408362153, 1.847606441];
+expData_raw.DUSP = [2.677161325, 2.782754577, 1.130758062, 0.395642757, 0.828575853, 0.916618219];
+expData_raw.pEGFR = [0.291928893, 0.392400458, 0.265016688, 0.394238749, 0.006158316, 0.008115099];
+expData_raw.pCRAF = [0.366397596, 0.537106733, 0.465541704, 0.586732657, 1.102322681, 0.269181259];
+expData_raw.pAKT = [0.513544148, 0.613178403, 1.03451863, 1.113391047, 0.535242724, 0.538273551];
+expData_raw.p4ebp1 = [1.002468056,1.276793699,1.252681407,1.707504483,1.271216967,0.61389625];
 
 % Normalize experimental data to [0, 1] using min-max normalization
 species_names = fieldnames(expData_raw);
@@ -328,22 +328,7 @@ num_params = length(params0);
 lb = 1e-12 * ones(num_params, 1);
 ub = 1e-3 * ones(num_params, 1);  % Increased to allow faster rates
 
-
 % Specific constraints for physical parameters (Concentrations, Hill coeffs)
-% ----------------------------------------------------------------------------
-% Custom bounds for CRAF related parameters (Indices: 4, 15, 16, 52, 59, 60, 61)
-% 4: k_CRAF_act, 15: k_ERK_phos, 16: k_degrad, 52: k_MEK_route, 
-% 59: kDimerForm, 60: kDimerDissoc, 61: kParadoxCRAF
-craf_indices = [4, 15, 16, 52, 59, 60, 61];
-lb(craf_indices) = 1e-8;
-ub(craf_indices) = 1e-3; 
-
-% Custom bounds for 4EBP1 related parameters (Indices: 45, 46, 47, 48)
-% 45: kb1, 46: k43b1, 47: k_4EBP1 (phos), 48: k_4EBP1_dephos
-frebp1_indices = [45, 46, 47, 48];
-lb(frebp1_indices) = 1e-10;
-ub(frebp1_indices) = 1e-2; 
-
 % Vemurafenib parameters (Concentration, IC50, Hill coefficient)
 lb(58) = 0.0;      % Vemurafenib concentration [0, 1]
 ub(58) = 1.0; 
@@ -351,6 +336,16 @@ lb(62) = 0.01;     % IC50_vem
 ub(62) = 0.99;
 lb(63) = 0.5;      % Hill_n_vem
 ub(63) = 5.0;
+
+% Custom bounds for pMEK related parameters
+% Indices: 5 (k_phos), 17 (k_ERK_phos), 18 (k_degrad), 51 (BRAF_route), 52 (CRAF_route), 53 (KSR_route)
+lb([5, 17, 18, 51, 52, 53]) = 1e-9; 
+ub([5, 17, 18, 51, 52, 53]) = 1e-1; % Allow wider range for MEK dynamics
+
+% Custom bounds for p4EBP1 related parameters
+% Indices: 47 (k_4EBP1), 48 (k_4EBP1_dephos)
+lb([47, 48]) = 1e-8;
+ub([47, 48]) = 1e-1; % Allow faster phosphorylation/dephosphorylation
 
 % Optimization options - Enhanced for better convergence
 opts = optimoptions(@fmincon, ...
@@ -401,7 +396,7 @@ normit = @(v, mode) v ./ max(eps, ...
 
 % Extract and normalize model outputs
 model_outputs.pEGFR = normit(Y_all(:,3), 'max');
-model_outputs.panRAS = normit(Y_all(:,16) + Y_all(:,18) + Y_all(:,20), 'last'); % panRAS = HRAS_GTP + NRAS_GTP + KRAS_GTP
+model_outputs.panRAS = normit(Y_all(:,16) + Y_all(:,18) + Y_all(:,20), 'last'); % panRAS = HRAS-GTP + NRAS-GTP + KRAS-GTP
 model_outputs.pCRAF = normit(Y_all(:,23), 'max');  % Updated index: pCRAF is now y(23)
 model_outputs.pMEK = normit(Y_all(:,27), 'first');  % Updated index: pMEK is now y(27)
 model_outputs.pERK = normit(Y_all(:,29), 'first');  % Updated index: pERK is now y(29)
@@ -427,7 +422,7 @@ fprintf('═══════════════════════�
 fprintf('Total Fit Error: %.4f\n', errorOpt);
 fprintf('Individual Protein Errors (sum across all timepoints):\n');
 fprintf('  pEGFR: %.4f\n', sum(fit_errors.pEGFR));
-% fprintf('  RAS:   %.4f\n', sum(fit_errors.RAS));  % Removed from optimization
+fprintf('  panRAS: %.4f\n', sum(fit_errors.panRAS));
 fprintf('  pCRAF: %.4f\n', sum(fit_errors.pCRAF));
 fprintf('  pMEK:  %.4f\n', sum(fit_errors.pMEK));
 fprintf('  pERK:  %.4f\n', sum(fit_errors.pERK));
@@ -497,7 +492,7 @@ for i = 1:length(species_to_plot)
 end
 
 % Fit error summary plot
-subplot(3, 3, 9); % Changed from 8 to 9 to fit layout or just use next slot
+subplot(3, 3, 9);
 total_errors = [sum(fit_errors.pEGFR), sum(fit_errors.pCRAF), ...
                 sum(fit_errors.pMEK), sum(fit_errors.pERK), sum(fit_errors.DUSP), ...
                 sum(fit_errors.pAKT), sum(fit_errors.p4EBP1), sum(fit_errors.panRAS)];
@@ -1174,66 +1169,6 @@ sgtitle('All PI3K Pathway Species', 'FontSize', 16, 'FontWeight', 'bold');
 fprintf('Figure 4: All PI3K Pathway Species generated successfully.\n\n');
 
 %% ============================================================================
-% FIGURE 5: RAS ISOFORM DYNAMICS
-% ============================================================================
-
-fprintf('Generating Figure 5: RAS Isoform Dynamics...\n');
-
-% Extract RAS species (GTP-bound active forms)
-ras_species.HRAS_GTP = Y_fine(:,16);
-ras_species.NRAS_GTP = Y_fine(:,18);
-ras_species.KRAS_GTP = Y_fine(:,20);
-ras_species.panRAS = ras_species.HRAS_GTP + ras_species.NRAS_GTP + ras_species.KRAS_GTP;
-
-figure('Name', 'RAS Isoform Dynamics', 'Position', [100, 100, 1200, 500]);
-
-% Plot 1: Absolute Activation Levels
-subplot(1, 3, 1);
-plot(tFine_hours, ras_species.HRAS_GTP, '-', 'Color', [0.8, 0.4, 0.4], 'LineWidth', 2.5, 'DisplayName', 'HRAS-GTP');
-hold on;
-plot(tFine_hours, ras_species.NRAS_GTP, '-', 'Color', [0.4, 0.8, 0.4], 'LineWidth', 2.5, 'DisplayName', 'NRAS-GTP');
-plot(tFine_hours, ras_species.KRAS_GTP, '-', 'Color', [0.4, 0.4, 0.8], 'LineWidth', 2.5, 'DisplayName', 'KRAS-GTP');
-plot(tFine_hours, ras_species.panRAS, '--', 'Color', [0.2, 0.2, 0.2], 'LineWidth', 2, 'DisplayName', 'Total panRAS');
-
-xlabel('Time (hours)', 'FontSize', 11);
-ylabel('Active Concentration', 'FontSize', 11);
-title('RAS Isoform Activation', 'FontSize', 13, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-set(gca, 'FontSize', 11);
-
-% Plot 2: Relative Contribution (Stacked)
-subplot(1, 3, 2);
-area(tFine_hours, [ras_species.HRAS_GTP, ras_species.NRAS_GTP, ras_species.KRAS_GTP]);
-colormap(gca, [0.8, 0.4, 0.4; 0.4, 0.8, 0.4; 0.4, 0.4, 0.8]);
-xlabel('Time (hours)', 'FontSize', 11);
-ylabel('Concentration', 'FontSize', 11);
-title('Stacked Contribution to panRAS', 'FontSize', 13, 'FontWeight', 'bold');
-legend({'HRAS', 'NRAS', 'KRAS'}, 'Location', 'best', 'FontSize', 10);
-grid on;
-set(gca, 'FontSize', 11);
-
-% Plot 3: panRAS Fit quality
-subplot(1, 3, 3);
-ras_norm_model = normit(ras_species.panRAS, 'last');
-
-plot(tFine_hours, ras_norm_model, '-', 'Color', [0.2, 0.6, 0.2], 'LineWidth', 3, 'DisplayName', 'Model panRAS');
-hold on;
-plot(timeStamps_hours, expData_norm.panRAS, 'o', 'Color', [0.8, 0.2, 0.2], ...
-     'MarkerSize', 8, 'MarkerFaceColor', [0.8, 0.2, 0.2], 'LineWidth', 2, 'DisplayName', 'Exp panRAS');
-
-xlabel('Time (hours)', 'FontSize', 11);
-ylabel('Normalized Activity', 'FontSize', 11);
-title('panRAS Model Fit', 'FontSize', 13, 'FontWeight', 'bold');
-legend('Location', 'best', 'FontSize', 10);
-grid on;
-set(gca, 'FontSize', 11);
-
-sgtitle('RAS Isoform Specific Activity', 'FontSize', 16, 'FontWeight', 'bold');
-
-fprintf('Figure 5 generated.\n\n');
-
-%% ============================================================================
 % SECTION 8: ODE FUNCTION
 % ============================================================================
 
@@ -1370,22 +1305,9 @@ function dydt = Mapk_ODE(t, y, p)
     % ========================================================================
     % MODULE 5: MEK PHOSPHORYLATION
     % ========================================================================
-    % Trametinib inhibition (Hill modifiers)
-    f_tram_RAF = 1 / (1 + (Tram / K_tram_RAF)^n_tram);
-    f_tram_KSR = 1 / (1 + (Tram / K_tram_KSR)^n_tram);
-
-    % ========================================================================
-    % MODULE 5: MEK PHOSPHORYLATION
-    % ========================================================================
-    % MEK can be phosphorylated by:
-    % 1. pCRAF (y23)
-    % 2. BRAF^P (y25) (Vemurafenib Sensitive)
-    % 3. BRAF-CRAF Dimer (y62) (Paradox Driven)
-    % 4. KSR scaffold (y61)
-    
-    % Apply Trametinib inhibition to RAF and KSR routes (Tram blocks activation loop phosphorylation)
-    raf_to_mek = (kpMek*y(23) + kMekByBraf*y(25) + kMekByCraf*y(23) + kpMek*y(62)) * f_tram_RAF;
-    ksr_to_mek = (kMekByKSR * y(61)) * f_tram_KSR;
+    % MEK can be phosphorylated by CRAF, BRAF, or KSR
+    raf_to_mek = (kpMek*y(23) + kMekByBraf*y(25) + kMekByCraf*y(23));
+    ksr_to_mek = (kMekByKSR * y(61));
     
     dydt(26) = -(raf_to_mek + ksr_to_mek)*y(26) + kErkPhosMek*y(29)*y(27) + kMekDegrad*y(27)*y(35);
     dydt(27) = (raf_to_mek + ksr_to_mek)*y(26) - kErkPhosMek*y(29)*y(27) - kMekDegrad*y(27)*y(35);
@@ -1393,13 +1315,8 @@ function dydt = Mapk_ODE(t, y, p)
     % ========================================================================
     % MODULE 6: ERK PHOSPHORYLATION
     % ========================================================================
-    % Trametinib also inhibits the catalytic activity of MEK towards ERK
-    % We apply the same inhibition factor f_tram_RAF (assuming binding drives inhibition)
-    
-    erk_activation = kpErk*y(27)*y(28) * f_tram_RAF;
-    
-    dydt(28) = -erk_activation + kDuspInbErk*y(31)*y(29) + kErkDeg*y(29)*y(34) + kErkDephos*y(31)*y(29);
-    dydt(29) = erk_activation - kDuspInbErk*y(31)*y(29) - kErkDeg*y(29)*y(34) - kErkDephos*y(31)*y(29);
+    dydt(28) = -kpErk*y(27)*y(28) + kDuspInbErk*y(31)*y(29) + kErkDeg*y(29)*y(34) + kErkDephos*y(31)*y(29);
+    dydt(29) = kpErk*y(27)*y(28) - kDuspInbErk*y(31)*y(29) - kErkDeg*y(29)*y(34) - kErkDephos*y(31)*y(29);
     
     % ========================================================================
     % MODULE 7: DUSP FEEDBACK
@@ -1556,9 +1473,10 @@ function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
     m_DUSP = norm(m_DUSP, 'max');
     m_pCRAF = norm(m_pCRAF, 'max');
     m_pAKT = norm(m_pAKT, 'max');
-    m_p4EBP1 = norm(m_p4EBP1, 'max');
+    m_p4EBP1 = norm(m_p4EBP1, 'max');  % p4EBP1
     % m_RAS_GTP = norm(m_RAS_GTP, 'last');  % Removed from optimization
     
+    % Calculate weighted sum of squared residuals
     % Calculate weighted sum of squared residuals
     w = struct('EGFR', 1, 'MEK', 1, 'ERK', 3, 'DUSP', 3, 'CRAF', 1, 'AKT', 1, 'p4EBP1', 1, 'panRAS', 1);
     
@@ -1571,9 +1489,12 @@ function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
     err = err + w.CRAF * sum((m_pCRAF - expData_norm.pCRAF(:)).^2);
     err = err + w.AKT * sum((m_pAKT - expData_norm.pAKT(:)).^2);
     err = err + w.p4EBP1 * sum((m_p4EBP1 - expData_norm.p4ebp1(:)).^2);
-    % err = err + w.RAS * sum((m_RAS_GTP - expData_norm.RAS_GTP(:)).^2);  % Removed from optimization
 end
 
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
 fprintf('   SIMULATION COMPLETED SUCCESSFULLY!\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
+
+% Save trained parameters for transfer learning
+save('trained_Vem_params.mat', 'optimizedParams');
+fprintf('Trained parameters saved to trained_Vem_params.mat\n');
