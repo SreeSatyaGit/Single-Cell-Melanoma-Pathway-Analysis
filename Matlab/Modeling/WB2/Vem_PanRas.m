@@ -1,23 +1,23 @@
 % =============================================================================
-% MAPK/PI3K PATHWAY MODEL: VEMURAFENIB + PAN-RAS INHIBITOR
+% MAPK/PI3K PATHWAY MODEL WITH VEMURAFENIB AND TRAMETINIB (COMBINATION)
 % =============================================================================
-% Version: 2.0 | Author: Anandivada Lab | Last Updated: 2026-01-14
+% Version: 2.0 | Author: Anandivada Lab | Last Updated: 2026-01-12
 %
 % DESCRIPTION:
 %   Comprehensive ODE model of MAPK and PI3K/AKT/mTOR signaling pathways
-%   simulating Combination Therapy (Vemurafenib + Pan-RAS Inhibitor).
-%   Consolidated with WB1 (Trametnib.m) structure for consistency.
+%   simulating Combination Therapy (Vemurafenib + Trametinib).
+%   Consolidated with Trametnib.m structure for consistency.
 %
 % KEY FEATURES:
 %   • EGFR/Her2/Her3/IGFR/PDGFR → RAS → RAF → MEK → ERK cascade
 %   • PI3K → AKT → mTOR → 4EBP1/S6K pathway
 %   • DUSP and SPRY negative feedback loops
+%   • Trametinib inhibition of MEK (with displacement mechanism)
 %   • Vemurafenib inhibition of BRAF^V600E & Paradoxical CRAF activation
-%   • Pan-RAS inhibitor logic acting on RAS-GTP species
 %
 % MODEL SIZE:
 %   • 68 Species (state variables)
-%   • 71 Parameters (68 Unified + 3 Pan-RAS specific)
+%   • 68 Parameters (rate constants)
 %   • Time units: seconds (experimental data in hours, converted)
 % =============================================================================
 
@@ -26,8 +26,8 @@ close all;
 clc;
 
 fprintf('═══════════════════════════════════════════════════════════════════════════\n');
-fprintf('   MAPK/PI3K PATHWAY MODEL: VEMURAFENIB + PAN-RAS INHIBITOR\n');
-fprintf('   Version 2.0 - Unified WB1-Style Structure\n');
+fprintf('   MAPK/PI3K PATHWAY MODEL: VEMURAFENIB + TRAMETINIB\n');
+fprintf('   Version 2.0 - Unified Combination Structure\n');
 fprintf('═══════════════════════════════════════════════════════════════════════════\n\n');
 
 %% ============================================================================
@@ -116,13 +116,13 @@ params.KSR.k_dephos = 5e-6;          % KSR dephosphorylation (min^-1)
 params.KSR.k_MEK_route = 3e-6;      % pKSR → MEK phosphorylation (min^-1)
 
 % ----------------------------------------------------------------------------
-% 1.11 Trametinib (MEK Inhibitor) Parameters - DISABLED for Vem+PanRAS
+% 1.11 Trametinib (MEK Inhibitor) Parameters - DISABLED
 % ----------------------------------------------------------------------------
-params.Trametinib.conc = 0.0;       
-params.Trametinib.Ki_RAF = 1e-9;     
-params.Trametinib.Ki_KSR = 1e-9;     
-params.Trametinib.Hill_n = 2.0;      
-params.Trametinib.K_displace = 0.05; 
+params.Trametinib.conc = 0.0;        % DISABLED (Vem + PanRAS)
+params.Trametinib.Ki_RAF = 1e-9;     % Effective Ki (Molar)
+params.Trametinib.Ki_KSR = 1e-9;     % Ki for KSR-mediated phosphorylation
+params.Trametinib.Hill_n = 2.0;      % Hill coefficient
+params.Trametinib.K_displace = 0.05; % Sensitivity to Upstream Load (Displacement)
 
 % ----------------------------------------------------------------------------
 % 1.12 Vemurafenib and Paradoxical Activation Parameters
@@ -157,18 +157,18 @@ params.mTOR.k_S6K = 10e-5;               % S6K phosphorylation
 params.mTOR.k_S6K_dephos = 10e-5;        % pS6K dephosphorylation
 
 % ----------------------------------------------------------------------------
-% 1.14 Pan-RAS Inhibitor Parameters
+% 1.14 General Degradation Parameters
 % ----------------------------------------------------------------------------
-params.PanRAS.conc = 1.0;            % Applied inhibitor concentration
-params.PanRAS.IC50 = 0.5;            % IC50 for RAS-GTP inhibition
+params.Degrad.general = 10e-7;      % General degradation rate
+
+% ----------------------------------------------------------------------------
+% 1.15 Pan-RAS Inhibitor Parameters (NEW)
+% ----------------------------------------------------------------------------
+params.PanRAS.conc = 1e-6;           % PanRAS Inhibitor Concentration
+params.PanRAS.IC50 = 1e-7;           % IC50 for RAS inhibition
 params.PanRAS.Hill_n = 1.0;          % Hill coefficient
 
-% ----------------------------------------------------------------------------
-% 1.15 General Degradation Parameters
-% ----------------------------------------------------------------------------
-params.Degrad.general = 10e-7;      
-
-% Convert parameter structure to vector
+% Convert parameter structure to vector (Order MUST match Trametnib.m)
 p = params;
 params_vector = [
     p.RTK.k_on, p.RTK.k_off, p.RTK.k_cat, ...
@@ -194,9 +194,13 @@ params_vector = [
     p.Paradox.gamma, p.Vemurafenib.IC50, p.Vemurafenib.Hill_n, ...
     p.RTK.k_PDGFR_act, p.PI3K.k_p85_bind_PDGFR, ...
     p.mTOR.k_S6K, p.mTOR.k_S6K_dephos, ...
-    p.Trametinib.K_displace, ... % Parameters up to 68 (Unified Standard)
-    p.PanRAS.conc, p.PanRAS.IC50, p.PanRAS.Hill_n % 69, 70, 71 (PanRAS extension)
+    p.Trametinib.K_displace, ...
+    p.PanRAS.conc, p.PanRAS.IC50, p.PanRAS.Hill_n
 ];
+
+if length(params_vector) ~= 71
+    error('Parameter vector has %d elements, expected 71!', length(params_vector));
+end
 
 %% ============================================================================
 %  SECTION 2: INITIAL CONDITIONS
@@ -204,9 +208,10 @@ params_vector = [
 
 fprintf('Setting initial conditions...\n');
 
+% Basal levels aligned with A375 experimental data at t=0
 IC.EGFR = [1.0, 0.35, 0.35];    IC.Her2 = [1.0, 0.245, 0.245];  IC.Her3 = [1.0, 0.203, 0.203];
 IC.SHC = [1.0, 0.0, 1.0];       IC.Grb2_SOS = [0.0, 0.0];
-IC.HRAS = [1.0, 0.0];           IC.NRAS = [1.0, 0.0];           IC.KRAS = [1.0, 0.0, 1.0]; % 19, 20, 21
+IC.HRAS = [0.0, 0.0];           IC.NRAS = [0.0, 0.0];           IC.KRAS = [1.0, 0.0, 1.0];
 IC.CRAF = [0.8, 0.366];         IC.BRAF = [1.0, 1.0];
 IC.MEK = [1.0, 1.759];          IC.ERK = [1.0, 2.903];
 IC.DUSP = [1.0, 2.677];         IC.SPRY = [1.0, 1.0];
@@ -235,72 +240,120 @@ y0 = [
 ];
 
 %% ============================================================================
-%  SECTION 3: EXPERIMENTAL DATA
+%  SECTION 3: EXPERIMENTAL DATA (Vemurafenib + Trametinib)
 %  ============================================================================
 
 fprintf('Loading experimental data...\n');
 timeStamps_hours = [0, 1, 4, 8, 24, 48];
 timeStamps_seconds = timeStamps_hours * 3600;
 
-% Data from current Vem_PanRas.m (used as baseline/target)
 expData_raw.pMEK = [1.368179432,0.040145283,0.020650599,0.0079056,0.008636227,0.021682145];
 expData_raw.pERK = [1.047565823,0.028753956,0.02683006,0.019206199,0.021359286,1.045153456];
 expData_raw.DUSP = [0.939982354,0.940182728,0.93995499,0.939315828,0.939284046,0.939384237];
 expData_raw.pEGFR = [0.231259538,0.281291836,0.206473671,0.067136885,0.029598009,0.041653072];
 expData_raw.pCRAF = [0.189167867,0.109105047,0.102702818,0.074742052,0.030393272,0.013923339];
 expData_raw.pAKT = [0.025678316,0.266170637,1.167110876,0.256750989,0.212461114,1.167189541];
-expData_raw.p4ebp1 = [0.989561348,0.989525727,0.989495943,0.989507379,0.989667542,0.476875796];
-
-% Placeholder data to avoid errors (panRAS, Her, S6K)
-expData_raw.panRAS = ones(size(timeStamps_hours)) * 0.5;
-expData_raw.her2 = ones(size(timeStamps_hours)) * 0.5;
-expData_raw.her3 = ones(size(timeStamps_hours)) * 0.5;
-expData_raw.pDGFR = ones(size(timeStamps_hours)) * 0.5;
-expData_raw.pS6k = ones(size(timeStamps_hours)) * 0.5;
+expData_raw.p4ebp1 = [0.939980348,0.939917371,0.88875682,0.939985773,0.94014027,0.278993442];
+expData_raw.her2 = [0.306924546,0.275751955,0.32171108,0.23070312,1.013023288,1.045536401];
+expData_raw.her3 = [0.989445229,0.98924085,0.989338622,0.986969439,0.989006688,0.989165017];
+expData_raw.pDGFR = [0.189167867,0.109105047,0.102702818,0.074742052,0.030393272,0.013923339];
 
 % Normalize
 species_names = fieldnames(expData_raw);
+expData_norm = struct();
 for i = 1:length(species_names)
     data = expData_raw.(species_names{i});
     expData_norm.(species_names{i}) = (data - min(data)) / (max(data) - min(data) + eps);
 end
 
 %% ============================================================================
-%  SECTION 4: LOAD PRE-TRAINED PARAMETERS
+%  SECTION 4: PARAMETER OPTIMIZATION SETUP
 %  ============================================================================
 
-fprintf('Loading pre-trained Vemurafenib parameters...\n');
-try
-    load('trained_Vem_params.mat', 'optimizedParams');
-    % Apply trained parameters to our vector (1-53 MAPK/PI3K Kinetics)
-    params_vector(1:53) = optimizedParams(1:53);
-    % Vemurafenib (58-63)
-    params_vector(58:63) = optimizedParams(58:63);
-    fprintf('Successfully loaded and mapped parameters.\n');
-catch
-    warning('Pre-trained parameters not found. Using default values.');
-end
+fprintf('Setting up global search optimization...\n');
+
+params0 = params_vector;
+num_params = length(params0);
+lb = 1e-12 * ones(num_params, 1);
+ub = 1.0 * ones(num_params, 1);
+
+% Specific constraints
+lb(54) = 1e-8; ub(54) = 1e-4; % Trametinib Concentration
+% RTK/PI3K Kinetics - Loosen bounds for more dynamic surges
+lb(1) = 1e-12; ub(1) = 10.0; % ka1
+lb(3) = 1e-12; ub(3) = 10.0; % kc1
+lb(7) = 1e-12; ub(7) = 1.0;  % kDegrad
+lb(8) = 1e-12; ub(8) = 1.0;  % kErkInb
+
+% Drug Affinity Bounds
+lb(55) = 1e-12; ub(55) = 1.0; % Ki_RAF
+lb(56) = 1e-12; ub(56) = 1.0; % Ki_KSR
+
+% K_displace Constraint - Relaxed to allow displacement-driven rebound
+lb(68) = 1e-6; ub(68) = 5000.0; % Sensitivity to Upstream Load
+
+% PI3K/AKT Kinetics
+lb(39) = 1e-12; ub(39) = 10.0; % PI3K recruitment
+lb(43) = 1e-12; ub(43) = 10.0; % AKT activation
+
+% RA S kinetics
+lb(26) = 1e-12; ub(26) = 1.0;  % general degrad used for RAS GAP
+
+% Physical constraints (Hill, IC50)
+lb(57) = 0.5;  ub(57) = 5.0;  % Tram Hill
+lb(63) = 0.1;  ub(63) = 5.0;  % Vem Hill (Allow wider range)
+
+% PanRAS Constraints (69-71)
+lb(69) = 1e-9; ub(69) = 1e-4; % PanRAS Conc
+lb(70) = 1e-9; ub(70) = 1e-5; % PanRAS IC50
+lb(71) = 0.5;  ub(71) = 2.0;  % PanRAS Hill
+
+opts = optimoptions(@fmincon, ...
+    'Algorithm', 'sqp', ...
+    'Display', 'iter', ...
+    'MaxIterations', 5000, ...
+    'MaxFunctionEvaluations', 500000, ...
+    'FunctionTolerance', 1e-10, ...
+    'StepTolerance', 1e-14, ...
+    'UseParallel', false);
 
 %% ============================================================================
-%  SECTION 5 & 6: PARAMETER SETUP AND SIMULATION
+%  SECTION 5 & 6: RUN OPTIMIZATION AND SIMULATE
 %  ============================================================================
 
-% We can skip optimization if we are just performing a prediction
-fprintf('Simulating Vemurafenib + Pan-RAS Inhibitor (Prediction)...\n');
 ode_opts = odeset('RelTol', 1e-6, 'AbsTol', 1e-8, 'NonNegative', 1:68);
 
-[T_all, Y_all] = ode15s(@(t,y) Mapk_ODE(t, y, params_vector), timeStamps_seconds, y0, ode_opts);
+fprintf('Running GlobalSearch for Combination Model (Vem + PanRAS)...\n');
+tic;
 
-% Normalization
+problem = createOptimProblem('fmincon', ...
+    'objective', @(p) objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0), ...
+    'x0', params0, 'lb', lb, 'ub', ub, 'options', opts);
+
+gs = GlobalSearch('Display', 'iter', 'NumTrialPoints', 400, 'NumStageOnePoints', 100, 'StartPointsToRun', 'bounds-ineqs');
+[optimizedParams, errorOpt] = run(gs, problem);
+toc;
+
+fprintf('Minimum Fit Error: %.6e\n\n', errorOpt);
+
+fprintf('Simulating with optimized parameters...\n');
+[T_all, Y_all] = ode15s(@(t,y) Mapk_ODE(t, y, optimizedParams), timeStamps_seconds, y0, ode_opts);
+
+% Helper Normalization Function
 min_max_norm = @(v) (v - min(v)) ./ (max(v) - min(v) + eps);
 
+% Evaluate Fit for 12 key species
 model_outputs.pEGFR = min_max_norm(Y_all(:,3));
-model_outputs.panRAS = min_max_norm(Y_all(:,16) + Y_all(:,18) + Y_all(:,21));
+model_outputs.panRAS = min_max_norm(Y_all(:,16) + Y_all(:,18) + Y_all(:,21)); % FIXED: y(21)
 model_outputs.pCRAF = min_max_norm(Y_all(:,23));
 model_outputs.pMEK = min_max_norm(Y_all(:,27));
 model_outputs.pERK = min_max_norm(Y_all(:,29));
+model_outputs.DUSP = min_max_norm(Y_all(:,31));
 model_outputs.pAKT = min_max_norm(Y_all(:,53));
 model_outputs.p4EBP1 = min_max_norm(Y_all(:,59));
+model_outputs.pHer2 = min_max_norm(Y_all(:,6));
+model_outputs.pHer3 = min_max_norm(Y_all(:,9));
+model_outputs.pDGFR = min_max_norm(Y_all(:,65));
 
 %% ============================================================================
 %  SECTION 7: VISUALIZATION
@@ -308,59 +361,63 @@ model_outputs.p4EBP1 = min_max_norm(Y_all(:,59));
 
 fprintf('Generating plots...\n');
 tFine_hours = linspace(0, 48, 400);
-[T_fine, Y_fine] = ode15s(@(t,y) Mapk_ODE(t, y, params_vector), tFine_hours*3600, y0, ode_opts);
+[T_fine, Y_fine] = ode15s(@(t,y) Mapk_ODE(t, y, optimizedParams), tFine_hours*3600, y0, ode_opts);
 
-% Extract Smooth Trajectories
+% Extract Smooth
 model_smooth.pEGFR = min_max_norm(Y_fine(:,3));
-model_smooth.panRAS = min_max_norm(Y_fine(:,16) + Y_fine(:,18) + Y_fine(:,21));
 model_smooth.pCRAF = min_max_norm(Y_fine(:,23));
 model_smooth.pMEK = min_max_norm(Y_fine(:,27));
 model_smooth.pERK = min_max_norm(Y_fine(:,29));
+model_smooth.DUSP = min_max_norm(Y_fine(:,31));
 model_smooth.pAKT = min_max_norm(Y_fine(:,53));
 model_smooth.p4EBP1 = min_max_norm(Y_fine(:,59));
+model_smooth.pHer2 = min_max_norm(Y_fine(:,6));
+model_smooth.pHer3 = min_max_norm(Y_fine(:,9));
+model_smooth.pDGFR = min_max_norm(Y_fine(:,65));
+% Figure 1: Model Fit
+figure('Name', 'Model Fit - Vem + Tram', 'Position', [50, 50, 1600, 1000]);
+species_to_plot = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4EBP1', 'pHer2', 'pHer3', 'pDGFR'};
+exp_fields = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'DUSP', 'pAKT', 'p4ebp1', 'her2', 'her3', 'pDGFR'};
 
-figure('Name', 'Prediction: Vemurafenib + Pan-RAS Inhibitor', 'Position', [50, 50, 1600, 1000]);
-plot_list = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'pAKT', 'p4EBP1', 'panRAS'};
-data_keys = {'pEGFR', 'pCRAF', 'pMEK', 'pERK', 'pAKT', 'p4ebp1', 'panRAS'};
-
-for i = 1:length(plot_list)
-    subplot(3, 3, i);
-    spec = plot_list{i};
-    key = data_keys{i};
-    plot(tFine_hours, model_smooth.(spec), 'b-', 'LineWidth', 3, 'DisplayName', 'Prediction'); hold on;
-    plot(timeStamps_hours, expData_norm.(key), 'ro', 'LineWidth', 2, 'MarkerSize', 8, 'DisplayName', 'Baseline Data');
-    title(spec); xlabel('Time (h)'); ylabel('Activity'); grid on;
-    if i == 1; legend('Location', 'best'); end
+for i = 1:length(species_to_plot)
+    subplot(3, 4, i);
+    spec = species_to_plot{i};
+    field = exp_fields{i};
+    plot(tFine_hours, model_smooth.(spec), 'g-', 'LineWidth', 3); hold on;
+    plot(timeStamps_hours, expData_norm.(field), 'ro', 'LineWidth', 2, 'MarkerSize', 8);
+    title(spec); xlabel('Time (h)'); grid on;
 end
-sgtitle('Therapy Response: Vemurafenib + Pan-RAS Inhibitor (Unified Model)');
+sgtitle('Combination Therapy (Vem+Tram) Model Fit Results');
+
+save('trained_VemandTram_params.mat', 'optimizedParams');
+fprintf('Optimization and Visualization Complete.\n');
 
 %% ============================================================================
-%  ODE FUNCTION (Unified Architecture)
+%  ODE FUNCTION
 %  ============================================================================
 function dydt = Mapk_ODE(t, y, p)
     dydt = zeros(68, 1);
     
-    % --- Unpack Parameters (1-68 Unified) ---
+    % Unpack Parameters
     ka1=p(1); kr1=p(2); kc1=p(3); kpCraf=p(4); kpMek=p(5); kpErk=p(6); kDegradEgfr=p(7); 
     kErkInbEgfr=p(8); kShcDephos=p(9); kptpDeg=p(10); kGrb2CombShc=p(11); kSprtyInbGrb2=p(12); 
     kSosCombGrb2=p(13); kErkPhosSos=p(14); kErkPhosPcraf=p(15); kPcrafDegrad=p(16); 
     kErkPhosMek=p(17); kMekDegrad=p(18); kDuspInbErk=p(19); kErkDeg=p(20); kinbBraf=p(21); 
     kDuspStop=p(22); kDusps=p(23); kSproutyForm=p(24); kSprtyComeDown=p(25); kdegrad=p(26); 
-    km_Sprty=p(29); kErkDephos=p(30); kDuspDeg=p(31);
+    km_Sprty_decay=p(27); km_Dusp=p(28); km_Sprty=p(29); kErkDephos=p(30); kDuspDeg=p(31);
     kHer2_act=p(32); kHer3_act=p(33); k_p85_bind_EGFR=p(34); k_p85_bind_Her2=p(35); 
     k_p85_bind_Her3=p(36); k_p85_bind_IGFR=p(37); k_p85_unbind=p(38); k_PI3K_recruit=p(39); 
     kMTOR_Feedback=p(40); k_PIP2_to_PIP3=p(41); k_PTEN=p(42); kAkt=p(43); kdegradAKT=p(44); 
     kb1=p(45); k43b1=p(46); k4ebp1=p(47); k_4EBP1_dephos=p(48); kKSRphos=p(49); kKSRdephos=p(50);
     kMekByBraf=p(51); kMekByCraf=p(52); kMekByKSR=p(53);
-    Tram=p(54); K_tram_RAF=p(55); n_tram=p(57);
+    Tram=p(54); K_tram_RAF=p(55); K_tram_KSR=p(56); n_tram=p(57);
     Vemurafenib=p(58); kDimerForm=p(59); kDimerDissoc=p(60); kParadoxCRAF=p(61); 
     IC50_vem=p(62); Hill_n_vem=p(63);
     kPDGFR_act=p(64); k_p85_bind_PDGFR=p(65); kS6K_phos=p(66); kS6K_dephos=p(67);
     K_displace=p(68);
     
-    % --- Extension: Pan-RAS Inhibitor (69-71) ---
+    % --- Pan-RAS Inhibitor (69-71) ---
     RASi_conc = p(69); RASi_IC50 = p(70); RASi_Hill = p(71);
-    % Calculate RAS-inhibition effectiveness
     RASi_eff = (RASi_conc^RASi_Hill) / (RASi_IC50^RASi_Hill + RASi_conc^RASi_Hill + eps);
 
     % --- ODEs ---
@@ -375,38 +432,40 @@ function dydt = Mapk_ODE(t, y, p)
     dydt(8) = kHer3_act*y(7) - kr1*y(8) - kc1*y(8);
     dydt(9) = kc1*y(8) - kDegradEgfr*y(9) - kErkInbEgfr*y(29)*y(9);
     
-    % SOS
+    % Shc/Grb2/SOS
     dydt(10) = -ka1*y(3)*y(10);
     dydt(11) = ka1*y(3)*y(10) - kShcDephos*y(12)*y(11);
     dydt(12) = -kptpDeg*y(11)*y(12);
     dydt(13) = kGrb2CombShc*y(11)*y(3) - kSprtyInbGrb2*y(33)*y(13);
     dydt(14) = kSosCombGrb2*y(13)*y(11) - kErkPhosSos*y(29)*y(14);
     
-    % RAS Module (Applying Pan-RAS Inhibitor)
-    % Deactivation enhanced by inhibitor (simplified model)
-    panRAS_active = y(16) + y(18) + y(21);
-    RAS_GAP_rate = kdegrad * (1.0 + RASi_eff * 50.0); % Inhibitor speeds up deactivation
+    % 3. RAS
+    % HRAS (15,16), NRAS (17,18), KRAS (19,20,21)
+    % Using kdegrad (p26) for RAS deactivation (GAP activity) mod by PanRAS
+    panRAS_active = y(16) + y(18) + y(21); 
+    RAS_GAP_rate = kdegrad * (1.0 + RASi_eff * 50.0); % Inhibitor speeds up GAP-mediated hydrolysis
     
-    dydt(15) = -ka1*y(14)*y(15) + RAS_GAP_rate*y(16); 
+    dydt(15) = -ka1*y(14)*y(15) ; 
     dydt(16) =  ka1*y(14)*y(15) - RAS_GAP_rate*y(16);
-    dydt(17) = -ka1*y(14)*y(17) + RAS_GAP_rate*y(18); 
+    dydt(17) = -ka1*y(14)*y(17) ; 
     dydt(18) =  ka1*y(14)*y(17) - RAS_GAP_rate*y(18);
-    dydt(19) = -ka1*y(14)*y(19) + RAS_GAP_rate*y(21); 
-    dydt(20) = 0;
+    dydt(19) = -ka1*y(14)*y(19) ; 
+    dydt(20) = 0; % Dummy intermediate
     dydt(21) =  ka1*y(14)*y(19) - RAS_GAP_rate*y(21);
     
-    % RAF / Vemurafenib Logic
+    % 4. RAF / Vemurafenib Logic
     IC50_n = IC50_vem^Hill_n_vem; Vem_n = Vemurafenib^Hill_n_vem;
     kBRAF_eff = ka1 * IC50_n / (IC50_n + Vem_n + eps);
     paradox_activation = kParadoxCRAF * Vemurafenib * y(62);
     
+    % Activation by panRAS_active 
     dydt(22) = -kpCraf*panRAS_active*y(22) + kErkPhosPcraf*y(29)*y(23) + kPcrafDegrad*y(23)*y(36) - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);
     dydt(23) = kpCraf*panRAS_active*y(22) - kErkPhosPcraf*y(29)*y(23) - kPcrafDegrad*y(23)*y(36) + paradox_activation;
     dydt(24) = -kBRAF_eff*y(24)*panRAS_active - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);
     dydt(25) = kBRAF_eff*y(24)*panRAS_active - kinbBraf*y(25) - kDimerForm*y(25)*y(22)*Vemurafenib + kDimerDissoc*y(62);
     dydt(62) = kDimerForm*y(25)*y(22)*Vemurafenib - kDimerDissoc*y(62) - kPcrafDegrad*y(62)*y(36);
     
-    % MEK/ERK
+    % Trametinib Logic
     Stream_Load = panRAS_active + (y(22)+y(23)) + (y(24)+y(25));
     Ki_effective = K_tram_RAF * (1 + (Stream_Load / K_displace)^2);
     f_MEK_activity = 1 / (max(0.01, 1 + (Tram / max(eps, Ki_effective))^n_tram));
@@ -420,13 +479,21 @@ function dydt = Mapk_ODE(t, y, p)
     dydt(28) = -erk_activation + kErkDephos*y(31)*y(29) + kErkDeg*y(29)*y(34);
     dydt(29) = erk_activation - kErkDephos*y(31)*y(29) - kErkDeg*y(29)*y(34);
     
-    % PI3K Module (Simplified for Prediction)
-    dydt(30) = km_Dusp*y(29)/(1 + (km_Dusp/kDusps)*y(29)) - kDuspStop*y(30)*y(37);
+    % Feedback & PI3K Module 
+    dydt(30) = km_Dusp*y(29)/(1 + (km_Dusp/kDusps)*y(29)) - kDuspStop*y(30)*y(37) - kDuspDeg*y(30)*y(29);
     dydt(31) = -kDuspStop*y(30)*y(31);
     dydt(32) = km_Sprty*y(29)/(1 + (km_Sprty/kSproutyForm)*y(29)) - kSprtyComeDown*y(32)*y(33);
     dydt(33) = -kSprtyComeDown*y(32)*y(33);
     dydt(34) = -kErkDeg*y(29)*y(34); dydt(35) = -kMekDegrad*y(27)*y(35); 
     dydt(36) = -kPcrafDegrad*y(23)*y(36); dydt(37) = -kDuspStop*y(30)*y(37);
+    dydt(38) = -ka1*y(38) + kr1*y(39); dydt(39) = ka1*y(38) - kr1*y(39) - kc1*y(39);
+    dydt(40) = kc1*y(39) - kErkInbEgfr*y(29)*y(40);
+    dydt(41) = -ka1*y(3)*y(41); dydt(42) = ka1*y(3)*y(41);
+    dydt(44) = k_p85_bind_EGFR*y(3)*y(43) - k_p85_unbind*y(44);
+    dydt(45) = k_p85_bind_Her2*y(6)*y(43) - k_p85_unbind*y(45);
+    dydt(46) = k_p85_bind_Her3*y(9)*y(43) - k_p85_unbind*y(46);
+    dydt(47) = k_p85_bind_IGFR*y(40)*y(43) - k_p85_unbind*y(47);
+    dydt(68) = k_p85_bind_PDGFR*y(65)*y(43) - k_p85_unbind*y(68);
     total_p85_RTK = y(44) + y(45) + y(46) + y(47) + y(68);
     dydt(48) = -k_PI3K_recruit*total_p85_RTK*y(48) + kMTOR_Feedback*y(56)*y(49);
     dydt(49) = k_PI3K_recruit*total_p85_RTK*y(48) - kMTOR_Feedback*y(56)*y(49);
@@ -447,11 +514,37 @@ function dydt = Mapk_ODE(t, y, p)
     dydt(65) = kc1*y(64) - kDegradEgfr*y(65) - kErkInbEgfr*y(29)*y(65);
     dydt(66) = -kS6K_phos*y(56)*y(66) + kS6K_dephos*y(67);
     dydt(67) = kS6K_phos*y(56)*y(66) - kS6K_dephos*y(67);
-    dydt(68) = k_p85_bind_PDGFR*y(65)*y(43) - k_p85_unbind*y(68);
+end
+
+%% ============================================================================
+%  OBJECTIVE FUNCTION
+%  ============================================================================
+function err = objectiveFunction_all(p, timeStamps_seconds, expData_norm, y0)
+    opt_ode = odeset('RelTol', 1e-5, 'AbsTol', 1e-7, 'NonNegative', 1:68);
+    try
+        [T, Y] = ode15s(@(t,y) Mapk_ODE(t, y, p), timeStamps_seconds, y0, opt_ode);
+        if length(T) ~= length(timeStamps_seconds); err = 1e9; return; end
+    catch
+        err = 1e9; return;
+    end
+    norm=@(v) (v - min(v)) ./ (max(v) - min(v) + 1e-6);
+    % Extract
+    m_pEGFR=norm(Y(:,3)); m_panRAS=norm(Y(:,16)+Y(:,18)+Y(:,21)); m_pCRAF=norm(Y(:,23)); 
+    m_pMEK=norm(Y(:,27)); m_pERK=norm(Y(:,29)); m_DUSP=norm(Y(:,31)); m_pAKT=norm(Y(:,53)); m_p4EBP1=norm(Y(:,59));
+    m_pHer2=norm(Y(:,6)); m_pHer3=norm(Y(:,9)); m_pDGFR=norm(Y(:,65)); m_pS6K=norm(Y(:,67));
     
-    % Scale to hours (p parameters are min^-1, model uses min) 
-    % Wait, the parameters are min^-1, so Mapk_ODE should return dydt in min^-1?
-    % Actually the system in WB1 uses seconds-scaled derivatives but p is min^-1.
-    % To match WB1 exactly, we multiply by scale factor in returns.
-    dydt = dydt * 60; % min^-1 derivatives
+    % Weighted Error (Force fit for critical failing dynamics)
+    w=struct('EGFR',3,'MEK',10,'ERK',10,'DUSP',2,'CRAF',10, ... 
+             'AKT',15,'p4EBP1',5,'panRAS',12, ...              % Increased panRAS weight
+             'Her2',5,'Her3',5,'PDGFR',8,'S6K',4);             % Increased RTK weights
+    err = 0;
+    err = err + w.EGFR*sum((m_pEGFR - expData_norm.pEGFR(:)).^2);
+    err = err + w.MEK*sum((m_pMEK - expData_norm.pMEK(:)).^2);
+    err = err + w.ERK*sum((m_pERK - expData_norm.pERK(:)).^2);
+    err = err + w.DUSP*sum((m_DUSP - expData_norm.DUSP(:)).^2);
+    err = err + w.CRAF*sum((m_pCRAF - expData_norm.pCRAF(:)).^2);
+    err = err + w.AKT*sum((m_pAKT - expData_norm.pAKT(:)).^2);
+    err = err + w.p4EBP1*sum((m_p4EBP1 - expData_norm.p4ebp1(:)).^2);
+    err = err + w.Her2*sum((m_pHer2 - expData_norm.her2(:)).^2);
+    err = err + w.Her3*sum((m_pHer3 - expData_norm.her3(:)).^2);
 end
